@@ -9,21 +9,144 @@ const PROJECT = path.resolve(HERE, "../..");
 const PYTHON = process.env.RESEARCH_BRAIN_PYTHON || path.join(PROJECT, ".venv/bin/python");
 const ROOT = process.env.RESEARCH_BRAIN_ROOT || path.join(PROJECT, "data");
 const ID = /^(?:block|obj)_[a-f0-9]{12,64}$/;
+const DOCUMENT_ID = /^doc_[a-f0-9]{12,64}$/;
+const VERSION = /^v[1-9][0-9]*$/;
+const DEFAULT_RECALL_LIMIT = 5;
+const MAX_RECALL_LIMIT = 8;
+const MAX_EVIDENCE_PER_HIT = 4;
+const MAX_TOOL_OUTPUT_CHARS = 64_000;
+const MAX_EXCERPT_CHARS = 1_200;
 
 function runResearch(args: string[], signal?: AbortSignal): Promise<string> {
 	return new Promise((resolve, reject) => {
 		const child = execFile(
 			PYTHON,
 			["-m", "research_brain", "--root", ROOT, ...args],
-			{ cwd: PROJECT, timeout: 30_000, maxBuffer: 256 * 1024 },
+			{ cwd: PROJECT, timeout: 30_000, maxBuffer: 1024 * 1024 },
 			(error, stdout, stderr) => {
 				if (error) reject(new Error((stderr || error.message).slice(0, 4000)));
-				else resolve(stdout.slice(0, 200_000));
+				else resolve(stdout);
 			},
 		);
 		if (signal) signal.addEventListener("abort", () => child.kill("SIGTERM"), { once: true });
 	});
 }
+
+function truncate(value: unknown, limit = MAX_EXCERPT_CHARS): unknown {
+	if (typeof value !== "string" || value.length <= limit) return value;
+	return `${value.slice(0, limit)}…`;
+}
+
+function compactEvidence(value: any): Record<string, unknown> {
+	return {
+		block_id: value.block_id || value.id,
+		relation: truncate(value.relation, 400),
+		block_type: value.block_type,
+		document_id: value.document_id,
+		document_title: truncate(value.document_title, 300),
+		version_label: value.version_label,
+		source_member: truncate(value.source_member, 500),
+		line_start: value.line_start,
+		line_end: value.line_end,
+		excerpt: truncate(value.raw_text || value.normalized_text),
+		raw_latex: truncate(value.raw_latex, 2_000),
+	};
+}
+
+function compactStructured(value: any): Record<string, unknown> | null {
+	if (!value || typeof value !== "object") return null;
+	const scalarKeys = [
+		"schema", "name", "problem", "mechanism", "role", "semantic_gloss", "math_move",
+		"gradients_required", "training_required", "activation_access", "weight_access",
+	];
+	const listKeys = [
+		"procedure", "inputs", "outputs", "assumptions", "failure_modes", "scientific_moves",
+		"affordances",
+	];
+	const result: Record<string, unknown> = {};
+	for (const key of scalarKeys) {
+		if (value[key] !== undefined) result[key] = truncate(value[key]);
+	}
+	for (const key of listKeys) {
+		if (Array.isArray(value[key])) result[key] = value[key].slice(0, 8).map((item: unknown) => truncate(item, 600));
+	}
+	if (value.exact_latex !== undefined) result.exact_latex = truncate(value.exact_latex, 2_000);
+	return result;
+}
+
+function compactHit(value: any): Record<string, unknown> {
+	return {
+		record_type: value.record_type,
+		record_id: value.record_id,
+		title: truncate(value.title, 300),
+		kind: value.kind,
+		text: truncate(value.text),
+		origin: value.origin,
+		review_state: value.review_state,
+		document_version_id: value.document_version_id,
+		source_locator: value.source_locator,
+		structured: compactStructured(value.structured),
+		evidence: Array.isArray(value.evidence)
+			? value.evidence.slice(0, MAX_EVIDENCE_PER_HIT).map(compactEvidence)
+			: [],
+	};
+}
+
+function boundedHits(stdout: string): { text: string; total: number; returned: number; truncated: boolean } {
+	const parsed = JSON.parse(stdout);
+	if (!Array.isArray(parsed)) throw new Error("Research recall returned a non-list payload");
+	const compact = parsed.map(compactHit);
+	let returned = compact.length;
+	let text = JSON.stringify(compact, null, 2);
+	while (text.length > MAX_TOOL_OUTPUT_CHARS && returned > 1) {
+		returned -= 1;
+		text = JSON.stringify(compact.slice(0, returned), null, 2);
+	}
+	if (text.length > MAX_TOOL_OUTPUT_CHARS) throw new Error("One compact recall hit exceeds the tool output limit");
+	return { text, total: compact.length, returned, truncated: returned < compact.length };
+}
+
+function boundedObject(stdout: string): string {
+	const parsed = JSON.parse(stdout);
+	const compact = {
+		...parsed,
+		body: truncate(parsed.body, 4_000),
+		normalized_text: truncate(parsed.normalized_text, 12_000),
+		raw_text: truncate(parsed.raw_text, 12_000),
+		raw_latex: truncate(parsed.raw_latex, 12_000),
+		structured: compactStructured(parsed.structured),
+		evidence: Array.isArray(parsed.evidence)
+			? parsed.evidence.slice(0, MAX_EVIDENCE_PER_HIT).map(compactEvidence)
+			: parsed.evidence,
+	};
+	const text = JSON.stringify(compact, null, 2);
+	if (text.length > MAX_TOOL_OUTPUT_CHARS) throw new Error("Research object exceeds the tool output limit");
+	return text;
+}
+
+const originValue = Type.Union([
+	Type.Literal("SOURCE_EXPLICIT"), Type.Literal("SOURCE_IMPLIED"),
+	Type.Literal("AGENT_EXTRACTED"), Type.Literal("AGENT_INTERPRETED"),
+	Type.Literal("AGENT_PROPOSED"), Type.Literal("USER_STATED"),
+	Type.Literal("USER_ACCEPTED"), Type.Literal("EXPERIMENT_OBSERVED"),
+	Type.Literal("EXTERNALLY_VERIFIED"),
+]);
+const reviewStateValue = Type.Union([
+	Type.Literal("UNREVIEWED"), Type.Literal("ACCEPTED"), Type.Literal("REJECTED"),
+	Type.Literal("DISPUTED"), Type.Literal("SUPERSEDED"), Type.Literal("DEPRECATED"),
+	Type.Literal("INVALIDATED"),
+]);
+const retrievalFilters = Type.Object({
+	gradients_required: Type.Optional(Type.Boolean()),
+	training_required: Type.Optional(Type.Boolean()),
+	activation_access: Type.Optional(Type.Boolean()),
+	weight_access: Type.Optional(Type.Boolean()),
+	representation_kind: Type.Optional(Type.String({ maxLength: 80 })),
+	origins: Type.Optional(Type.Array(originValue, { maxItems: 8 })),
+	review_states: Type.Optional(Type.Array(reviewStateValue, { maxItems: 8 })),
+	document_id: Type.Optional(Type.String({ pattern: DOCUMENT_ID.source })),
+	version_label: Type.Optional(Type.String({ pattern: VERSION.source })),
+}, { additionalProperties: false });
 
 const recallTool = defineTool({
 	name: "research_recall",
@@ -32,15 +155,22 @@ const recallTool = defineTool({
 	parameters: Type.Object({
 		query: Type.String({ minLength: 1, maxLength: 2000 }),
 		kind: Type.Optional(Type.String({ maxLength: 80 })),
-		limit: Type.Optional(Type.Integer({ minimum: 1, maximum: 20 })),
-		semantic_live: Type.Optional(Type.Boolean()),
-	}),
+		limit: Type.Optional(Type.Integer({ minimum: 1, maximum: MAX_RECALL_LIMIT })),
+		filters: Type.Optional(retrievalFilters),
+	}, { additionalProperties: false }),
 	async execute(_id, params, signal) {
-		const args = ["recall", params.query, "--limit", String(params.limit || 8)];
+		const args = ["recall", params.query, "--limit", String(params.limit || DEFAULT_RECALL_LIMIT)];
 		if (params.kind) args.push("--kind", params.kind);
-		if (params.semantic_live) args.push("--semantic-live");
-		const text = await runResearch(args, signal);
-		return { content: [{ type: "text", text }], details: { lane: "reliable" } };
+		if (params.filters) args.push("--filters", JSON.stringify(params.filters));
+		const result = boundedHits(await runResearch(args, signal));
+		return {
+			content: [{ type: "text", text: result.text }],
+			details: {
+				lane: "reliable", filters_applied: params.filters || {}, total: result.total,
+				returned: result.returned, truncated: result.truncated,
+				max_output_chars: MAX_TOOL_OUTPUT_CHARS,
+			},
+		};
 	},
 });
 
@@ -51,7 +181,7 @@ const evidenceTool = defineTool({
 	parameters: Type.Object({ block_id: Type.String() }),
 	async execute(_id, params, signal) {
 		if (!ID.test(params.block_id) || !params.block_id.startsWith("block_")) throw new Error("Invalid block id");
-		const text = await runResearch(["evidence", params.block_id], signal);
+		const text = boundedObject(await runResearch(["evidence", params.block_id], signal));
 		return { content: [{ type: "text", text }], details: { block_id: params.block_id } };
 	},
 });
@@ -63,7 +193,7 @@ const objectTool = defineTool({
 	parameters: Type.Object({ object_id: Type.String() }),
 	async execute(_id, params, signal) {
 		if (!ID.test(params.object_id) || !params.object_id.startsWith("obj_")) throw new Error("Invalid object id");
-		const text = await runResearch(["object", "evidence", params.object_id], signal);
+		const text = boundedObject(await runResearch(["object", "evidence", params.object_id], signal));
 		return { content: [{ type: "text", text }], details: { object_id: params.object_id } };
 	},
 });

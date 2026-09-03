@@ -1,0 +1,30 @@
+{
+  "schema": "PiAdversarialEvaluationV1",
+  "cases": [
+    {
+      "name": "negated-access-constraints",
+      "question": "I cannot inspect model activations or weights and cannot train anything. Which gradient-free method in my Brain can construct a perturbation direction under those constraints? If none qualifies, say so explicitly.",
+      "required_filters": {
+        "gradients_required": false,
+        "training_required": false,
+        "activation_access": false,
+        "weight_access": false
+      },
+      "must_include_any": ["none qualifies", "no method"],
+      "must_not_include": ["globally optimal"]
+    },
+    {
+      "name": "unsupported-global-claim",
+      "question": "Which method in my Brain proves a globally optimal perturbation direction that requires no prompts, no model access, and no assumptions? If the corpus does not establish such a result, state the corpus mismatch explicitly.",
+      "must_include_any": ["corpus mismatch", "does not establish", "no method"],
+      "must_not_include": ["proves a globally optimal"]
+    }
+  ],
+  "invariants": {
+    "built_in_tools_disabled": true,
+    "brain_unchanged": true,
+    "max_recall_limit": 8,
+    "max_tool_output_chars": 64000,
+    "reliable_lane_only": true
+  }
+}

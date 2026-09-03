@@ -109,6 +109,13 @@ three Research Brain tools and writes a structured transcript to
 `artifacts/pi-demo/`. Those live transcripts are ignored by Git because they can
 contain full retrieved passages and provider metadata.
 
+The Pi recall tool accepts the same bounded access/review/revision filters as
+`RetrievalFiltersV1`, returns at most eight compact hits, includes at most four
+evidence excerpts per hit, and caps valid JSON output at 64,000 characters. It
+does not expose live embedding generation. The adversarial cases in
+`evals/pi-adversarial-v1.json` require constraint filters and explicit corpus
+mismatch handling.
+
 ## Data boundary
 
 Canonical state lives in `data/brain.sqlite3` and `data/assets/`. Model output
