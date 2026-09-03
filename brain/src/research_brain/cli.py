@@ -74,6 +74,63 @@ def build_parser() -> argparse.ArgumentParser:
     question_add.add_argument("--constraints", default="[]")
     question_add.add_argument("--available-access", default="[]")
     question_add.add_argument("--desired-output")
+    question_add.add_argument("--thread")
+
+    thread = commands.add_parser("thread", help="Hot Frontier thread operations")
+    thread_commands = thread.add_subparsers(dest="thread_command", required=True)
+    thread_add = thread_commands.add_parser("add")
+    thread_add.add_argument("title")
+    thread_add.add_argument("--goal", required=True)
+    thread_add.add_argument("--status", default="active")
+    thread_add.add_argument("--known", default="[]")
+    thread_add.add_argument("--unknown", default="[]")
+    thread_add.add_argument("--constraints", default="[]")
+    thread_add.add_argument("--pending-decisions", default="[]")
+    thread_add.add_argument("--pending-experiments", default="[]")
+    thread_show = thread_commands.add_parser("show")
+    thread_show.add_argument("thread_id")
+    thread_update = thread_commands.add_parser("update")
+    thread_update.add_argument("thread_id")
+    thread_update.add_argument("--changes", required=True, help="ResearchThreadV1 field updates as JSON")
+
+    hypothesis = commands.add_parser("hypothesis", help="Hypothesis operations")
+    hypothesis_commands = hypothesis.add_subparsers(dest="hypothesis_command", required=True)
+    hypothesis_add = hypothesis_commands.add_parser("add")
+    hypothesis_add.add_argument("statement")
+    hypothesis_add.add_argument("--thread", required=True)
+    hypothesis_add.add_argument("--status", default="active")
+    hypothesis_add.add_argument("--evidence-for", default="[]")
+    hypothesis_add.add_argument("--evidence-against", default="[]")
+
+    observe = commands.add_parser("observe", help="Record an evidence-backed observation")
+    observe.add_argument("statement")
+    observe.add_argument("--thread", required=True)
+    observe.add_argument("--conditions", required=True)
+    observe.add_argument("--evidence-refs", required=True)
+
+    interpret = commands.add_parser("interpret", help="Record an interpretation of observations")
+    interpret.add_argument("statement")
+    interpret.add_argument("--thread", required=True)
+    interpret.add_argument("--derived-from", required=True)
+
+    tension = commands.add_parser("tension", help="Unresolved frontier-tension operations")
+    tension_commands = tension.add_subparsers(dest="tension_command", required=True)
+    tension_add = tension_commands.add_parser("add")
+    tension_add.add_argument("statement")
+    tension_add.add_argument("--thread", required=True)
+    tension_add.add_argument("--side-a", required=True)
+    tension_add.add_argument("--side-b", required=True)
+    tension_add.add_argument("--possible-explanations", default="[]")
+
+    usage = commands.add_parser("usage", help="Record negative or historical method use")
+    usage_commands = usage.add_subparsers(dest="usage_command", required=True)
+    usage_add = usage_commands.add_parser("add")
+    usage_add.add_argument("candidate")
+    usage_add.add_argument("--thread", required=True)
+    usage_add.add_argument("--disposition", required=True)
+    usage_add.add_argument("--reason", required=True)
+    usage_add.add_argument("--what-would-reconsider", required=True)
+    usage_add.add_argument("--body")
 
     object_parser = commands.add_parser("object", help="Generic research-object operations")
     object_commands = object_parser.add_subparsers(dest="object_command", required=True)
@@ -126,8 +183,10 @@ def build_parser() -> argparse.ArgumentParser:
     evaluate_parser.add_argument("spec")
     evaluate_parser.add_argument("--semantic-live", action="store_true")
 
-    history = commands.add_parser("history", help="Show append-only history for an object")
-    history.add_argument("object_id")
+    history = commands.add_parser("history", help="Show append-only history for an object or thread")
+    history_target = history.add_mutually_exclusive_group(required=True)
+    history_target.add_argument("object_id", nargs="?")
+    history_target.add_argument("--thread", dest="thread_id")
     return parser
 
 
@@ -162,6 +221,53 @@ def run(args: argparse.Namespace) -> Any:
             constraints=_json_list(args.constraints, label="constraints"),
             available_access=_json_list(args.available_access, label="available-access"),
             desired_output=args.desired_output,
+            thread_id=args.thread,
+        )
+    if args.command == "thread" and args.thread_command == "add":
+        return brain.create_thread(
+            args.title, goal=args.goal, status=args.status,
+            known=_json_list(args.known, label="known"),
+            unknown=_json_list(args.unknown, label="unknown"),
+            constraints=_json_list(args.constraints, label="constraints"),
+            pending_decisions=_json_list(args.pending_decisions, label="pending-decisions"),
+            pending_experiments=_json_list(args.pending_experiments, label="pending-experiments"),
+        )
+    if args.command == "thread" and args.thread_command == "show":
+        result = brain.get_thread(args.thread_id)
+        if result is None:
+            raise LookupError(f"Research thread not found: {args.thread_id}")
+        return result
+    if args.command == "thread" and args.thread_command == "update":
+        return brain.update_frontier(args.thread_id, _json_object(args.changes, label="changes"))
+    if args.command == "hypothesis" and args.hypothesis_command == "add":
+        return brain.create_hypothesis(
+            args.statement, thread_id=args.thread, status=args.status,
+            evidence_for=_json_list(args.evidence_for, label="evidence-for"),
+            evidence_against=_json_list(args.evidence_against, label="evidence-against"),
+        )
+    if args.command == "observe":
+        return brain.record_observation(
+            args.statement, thread_id=args.thread,
+            conditions=_json_object(args.conditions, label="conditions"),
+            evidence_refs=_json_list(args.evidence_refs, label="evidence-refs"),
+        )
+    if args.command == "interpret":
+        return brain.record_interpretation(
+            args.statement, thread_id=args.thread,
+            derived_from=_json_list(args.derived_from, label="derived-from"),
+        )
+    if args.command == "tension" and args.tension_command == "add":
+        return brain.record_tension(
+            args.statement, thread_id=args.thread,
+            side_a=_json_list(args.side_a, label="side-a"),
+            side_b=_json_list(args.side_b, label="side-b"),
+            possible_explanations=_json_list(args.possible_explanations, label="possible-explanations"),
+        )
+    if args.command == "usage" and args.usage_command == "add":
+        return brain.record_usage_episode(
+            args.body or args.reason, candidate=args.candidate, disposition=args.disposition,
+            reason=args.reason, what_would_reconsider=args.what_would_reconsider,
+            thread_id=args.thread,
         )
     if args.command == "object" and args.object_command == "add":
         return brain.create_research_object(
@@ -191,7 +297,7 @@ def run(args: argparse.Namespace) -> Any:
         from .evaluation import evaluate
         return evaluate(brain, args.spec, semantic_live=args.semantic_live)
     if args.command == "history":
-        return brain.get_history(args.object_id)
+        return brain.get_history(args.thread_id or args.object_id)
     raise AssertionError("unhandled command")
 
 

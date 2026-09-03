@@ -1,0 +1,29 @@
+{
+  "schema": "FrontierEvaluationV1",
+  "cases": [
+    {
+      "name": "frontier-aware-recall",
+      "question": "What is currently unresolved about principled perturbation directions?",
+      "must_include_kinds": ["research_thread", "research_question", "tension"],
+      "must_include_fields": ["constraints", "unknown"]
+    },
+    {
+      "name": "observation-without-interpretation",
+      "question": "What did experiment E42 actually observe, independent of our interpretation?",
+      "must_include_kinds": ["observation", "experiment_result"],
+      "must_label_separately": ["interpretation"]
+    },
+    {
+      "name": "negative-history",
+      "question": "Have I already tried a variance-derived basis?",
+      "must_include_kinds": ["usage_episode"],
+      "must_include_fields": ["disposition", "reason", "what_would_reconsider"]
+    },
+    {
+      "name": "critique-tension",
+      "question": "Why might the current covariance hypothesis be wrong?",
+      "must_include_kinds": ["tension", "observation", "hypothesis"],
+      "must_prioritize": ["counterevidence", "possible_explanations", "failure_modes"]
+    }
+  ]
+}

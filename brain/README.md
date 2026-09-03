@@ -97,6 +97,40 @@ Run the retrieval benchmark with:
 research --root data evaluate evals/retrieval-v1.json --semantic-live
 ```
 
+## Hot Frontier
+
+Frontier objects use the existing generic research-object ledger; no separate
+graph database or schema migration is required.
+
+```bash
+research --root data thread add "Principled perturbation directions" \
+  --goal "Derive directions from transformer structure" \
+  --constraints '["low compute","prefer no gradients"]'
+
+research --root data observe \
+  --thread <thread-id> \
+  --conditions '{"model":"...","layer":12,"perturbation_norm":1.0}' \
+  --evidence-refs '["obj_<experiment-result-id>"]' \
+  "Direction X changed the target logit gap by 2.31."
+
+research --root data interpret \
+  --thread <thread-id> \
+  --derived-from '["obj_<observation-id>"]' \
+  "This is consistent with Direction X being behaviorally relevant."
+
+research --root data tension add \
+  --thread <thread-id> \
+  --side-a '["obj_<hypothesis-id>"]' \
+  --side-b '["obj_<experiment-result-id>"]' \
+  "High activation variance but weak behavioral perturbation effect."
+```
+
+Thread updates replace only the supplied frontier fields and append a
+`frontier_updated` event containing the before/after state. Observations require
+conditions and evidence references. Interpretations must reference Observation
+objects and remain unreviewed by default. Negative Usage Episodes require a
+controlled disposition, reason, and reconsideration condition.
+
 ## Read-only Pi demo
 
 ```bash

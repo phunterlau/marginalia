@@ -504,6 +504,45 @@ class SQLiteStore:
                 created_at=row["created_at"], updated_at=row["updated_at"],
             )
 
+    def update_object_structured(
+        self,
+        object_id: str,
+        *,
+        structured: dict[str, Any],
+        event_type: str,
+        changes: dict[str, Any],
+        body: str | None = None,
+        actor: str = "user",
+    ) -> ResearchObject:
+        now = utc_now()
+        structured_json = json.dumps(structured, sort_keys=True)
+        with self.connect() as connection:
+            row = connection.execute(
+                "SELECT kind, title, body, structured_json FROM research_objects WHERE id = ?",
+                (object_id,),
+            ).fetchone()
+            if not row:
+                raise LookupError(f"Research object not found: {object_id}")
+            before = json.loads(row["structured_json"])
+            updated_body = row["body"] if body is None else body
+            connection.execute(
+                "UPDATE research_objects SET body = ?, structured_json = ?, updated_at = ? WHERE id = ?",
+                (updated_body, structured_json, now, object_id),
+            )
+            connection.execute("DELETE FROM object_fts WHERE object_id = ?", (object_id,))
+            connection.execute(
+                "INSERT INTO object_fts(object_id, kind, title, body, structured) VALUES (?, ?, ?, ?, ?)",
+                (object_id, row["kind"], row["title"] or "", updated_body, structured_json),
+            )
+            self._append_event(
+                connection,
+                event_type,
+                object_id,
+                {"changes": changes, "before": before, "after": structured},
+                actor,
+            )
+        return self.get_object(object_id)  # type: ignore[return-value]
+
     @staticmethod
     def _fts_query(query: str) -> str:
         tokens = re.findall(r"[\w-]+", query, flags=re.UNICODE)
