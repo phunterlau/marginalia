@@ -314,12 +314,7 @@ def run(args: argparse.Namespace) -> Any:
         return [brain.ingest_manifest(path) for path in manifests]
     if args.command == "corpus" and args.corpus_task == "benchmark":
         from .benchmark import benchmark_corpus_queries
-        report = benchmark_corpus_queries(brain, args.spec, iterations=args.iterations)
-        if not report.passed:
-            raise RuntimeError(
-                f"corpus query gate failed: recall_at_5={report.recall_at_5}, p95_ms={report.p95_ms}"
-            )
-        return report
+        return benchmark_corpus_queries(brain, args.spec, iterations=args.iterations)
     if args.command == "evaluate":
         from .evaluation import evaluate
         return evaluate(brain, args.spec, semantic_live=args.semantic_live)
@@ -338,7 +333,7 @@ def main(argv: list[str] | None = None) -> int:
         print(_json({"error": type(exc).__name__, "message": str(exc)}), file=sys.stderr)
         return 2
     print(_json(result))
-    return 0
+    return 1 if is_dataclass(result) and getattr(result, "passed", True) is False else 0
 
 
 if __name__ == "__main__":

@@ -10,6 +10,7 @@ import unittest
 from unittest.mock import patch
 
 from research_brain import Brain, RetrievalFiltersV1
+from research_brain.evaluation import evaluate
 from research_brain.ingest import resolve_source
 from research_brain.parsing import parse_arxiv_source
 
@@ -228,6 +229,27 @@ class MilestoneTests(unittest.TestCase):
             filters=RetrievalFiltersV1(gradients_required=True),
         )
         self.assertEqual(blocked, [])
+
+    def test_retrieval_evaluation_thresholds_fail_closed(self) -> None:
+        ingested = self.brain.ingest(self.paper)
+        extracted = self.brain.extract("methods", ingested.document_id, live=True)
+        self.brain.review_research_object(extracted.object_ids[0], review_state="ACCEPTED")
+        self.brain.index_embeddings("all", live=True)
+        spec = self.root / "evaluation.json"
+        spec.write_text(json.dumps({
+            "minimum_recall_at_5": 1.0,
+            "minimum_semantic_wins_over_lexical": 1,
+            "cases": [{
+                "name": "semantic-only", "query": "principled perturbation basis",
+                "kinds": ["method_card"], "target_title": "Paired contrast direction",
+                "must_retrieve": True,
+            }],
+        }), encoding="utf-8")
+        failed = evaluate(self.brain, spec)
+        self.assertFalse(failed.passed)
+        passed = evaluate(self.brain, spec, semantic_live=True)
+        self.assertTrue(passed.passed)
+        self.assertEqual(passed.semantic_wins_over_lexical, 1)
 
 
 if __name__ == "__main__":

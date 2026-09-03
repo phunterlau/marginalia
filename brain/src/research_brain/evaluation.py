@@ -19,6 +19,7 @@ class EvaluationReport:
     constraint_violations: int
     unreviewed_leakage: int
     semantic_wins_over_lexical: int
+    passed: bool
     results: tuple[dict[str, Any], ...]
 
 
@@ -63,6 +64,16 @@ def evaluate(brain: Brain, spec_path: str | Path, *, semantic_live: bool = False
         results.append({"name": case.get("name"), "query": case["query"], "target": target,
                         "rank": rank, "lexical_rank": lexical_titles.index(target) + 1 if target in lexical_titles else None,
                         "returned_titles": titles})
-    return EvaluationReport(len(cases), retrieved / must_count if must_count else 1.0,
-                            reciprocal / must_count if must_count else 1.0,
-                            violations, leakage, semantic_wins, tuple(results))
+    recall = retrieved / must_count if must_count else 1.0
+    mean_reciprocal_rank = reciprocal / must_count if must_count else 1.0
+    passed = (
+        recall >= float(spec.get("minimum_recall_at_5", 1.0))
+        and mean_reciprocal_rank >= float(spec.get("minimum_mean_reciprocal_rank", 0.0))
+        and violations <= int(spec.get("maximum_constraint_violations", 0))
+        and leakage <= int(spec.get("maximum_unreviewed_leakage", 0))
+        and semantic_wins >= int(spec.get("minimum_semantic_wins_over_lexical", 0))
+    )
+    return EvaluationReport(
+        len(cases), recall, mean_reciprocal_rank, violations, leakage,
+        semantic_wins, passed, tuple(results),
+    )

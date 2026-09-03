@@ -1,5 +1,10 @@
 {
   "schema": "RetrievalEvaluationV1",
+  "minimum_recall_at_5": 1.0,
+  "minimum_mean_reciprocal_rank": 0.75,
+  "maximum_constraint_violations": 0,
+  "maximum_unreviewed_leakage": 0,
+  "minimum_semantic_wins_over_lexical": 2,
   "cases": [
     {
       "name": "exact-method",

@@ -168,6 +168,14 @@ The benchmark fails unless every paper-specific target is found in the top five
 and warm lexical-query p95 is at most 100 ms. It reports paper/block counts and
 per-case ranks so corpus variety and speed remain inspectable.
 
+The hybrid retrieval gate is similarly executable and returns a nonzero status
+when its checked-in recall, rank, filter, review-isolation, or semantic-win
+thresholds are missed:
+
+```bash
+research --root data evaluate evals/retrieval-v1.json --semantic-live
+```
+
 ## Read-only Pi demo
 
 ```bash

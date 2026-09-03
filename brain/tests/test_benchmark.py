@@ -6,6 +6,7 @@ import tempfile
 
 from research_brain import Brain
 from research_brain.benchmark import benchmark_corpus_queries
+from research_brain.cli import main
 
 
 def test_corpus_benchmark_measures_correctness_and_warm_latency() -> None:
@@ -37,3 +38,20 @@ def test_corpus_benchmark_measures_correctness_and_warm_latency() -> None:
         assert report.papers == 1
         assert report.blocks >= 1
         assert report.results[0]["rank"] == 1
+        assert main(["--root", str(root / "brain"), "corpus", "benchmark", str(spec),
+                     "--iterations", "1"]) == 0
+
+
+def test_failed_benchmark_is_reported_with_nonzero_exit(capsys: object) -> None:
+    with tempfile.TemporaryDirectory() as temporary:
+        root = Path(temporary)
+        brain_root = root / "brain"
+        Brain(brain_root)
+        spec = root / "benchmark.json"
+        spec.write_text(json.dumps({
+            "cases": [{"query": "missing evidence", "target_arxiv": "none.00000"}],
+        }), encoding="utf-8")
+        assert main(["--root", str(brain_root), "corpus", "benchmark", str(spec),
+                     "--iterations", "1"]) == 1
+        output = capsys.readouterr().out  # type: ignore[attr-defined]
+        assert '"passed": false' in output
