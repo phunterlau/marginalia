@@ -6,12 +6,13 @@ from pathlib import Path
 import os
 from typing import Any, Sequence
 
+from .context import ContextCompiler
 from .embeddings import EmbeddingIndexer, EmbeddingResult
 from .extraction import ExtractionResult, Extractor
 from .frontier import (HYPOTHESIS_STATUSES, QUESTION_STATUSES, TENSION_STATUSES, USAGE_DISPOSITIONS,
                        enum, mapping, optional_text, strings, text, thread_payload, update_thread_payload)
 from .ingest import Ingestor
-from .models import IngestResult, ResearchObject, RetrievalFiltersV1, SearchHitV2
+from .models import IngestResult, ResearchObject, ResearchPacketV1, RetrievalFiltersV1, SearchHitV2
 from .retrieval import Retriever
 from .store import SQLiteStore
 
@@ -26,6 +27,7 @@ class Brain:
         self.extractor = Extractor(self.store, extraction_provider_factory)
         self.embedding_indexer = EmbeddingIndexer(self.store, embedding_provider_factory)
         self.retriever = Retriever(self.store)
+        self.context_compiler = ContextCompiler(self.store, self.retriever)
         self.embedding_provider_factory = embedding_provider_factory
 
     def ingest(self, source: str | Path) -> IngestResult:
@@ -323,6 +325,24 @@ class Brain:
                      query_vector: Sequence[float] | None = None) -> list[SearchHitV2]:
         return self.recall(problem_signature, kinds=["method_card"], filters=filters, limit=limit,
                            semantic_live=semantic_live, query_vector=query_vector)
+
+    def context(
+        self,
+        question: str,
+        *,
+        thread_id: str | None = None,
+        mode: str = "analysis",
+        filters: RetrievalFiltersV1 | None = None,
+        limit: int = 8,
+        blind_first: str | None = None,
+        semantic_live: bool = False,
+        query_vector: Sequence[float] | None = None,
+    ) -> ResearchPacketV1:
+        return self.context_compiler.compile(
+            question, thread_id=thread_id, mode=mode, filters=filters, limit=limit,
+            blind_first=blind_first, query_vector=query_vector,
+            embedding_provider=self._embedding_provider(semantic_live),
+        )
 
     def get_history(self, object_id: str) -> list[dict[str, Any]]:
         return self.store.history(object_id)

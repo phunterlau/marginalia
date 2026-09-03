@@ -504,6 +504,30 @@ class SQLiteStore:
                 created_at=row["created_at"], updated_at=row["updated_at"],
             )
 
+    def list_object_records(
+        self,
+        *,
+        kinds: Sequence[str] | None = None,
+        thread_id: str | None = None,
+    ) -> list[dict[str, Any]]:
+        sql = "SELECT id, structured_json FROM research_objects"
+        params: list[Any] = []
+        if kinds:
+            sql += f" WHERE kind IN ({','.join('?' for _ in kinds)})"
+            params.extend(kinds)
+        sql += " ORDER BY created_at DESC, id"
+        with self.connect() as connection:
+            rows = connection.execute(sql, params).fetchall()
+        result: list[dict[str, Any]] = []
+        for row in rows:
+            structured = json.loads(row["structured_json"])
+            if thread_id is not None and structured.get("thread_id") != thread_id:
+                continue
+            record = self.get_object_record(row["id"])
+            if record is not None:
+                result.append(record)
+        return result
+
     def update_object_structured(
         self,
         object_id: str,

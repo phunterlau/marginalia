@@ -131,6 +131,29 @@ conditions and evidence references. Interpretations must reference Observation
 objects and remain unreviewed by default. Negative Usage Episodes require a
 controlled disposition, reason, and reconsideration condition.
 
+Compile a compact, deduplicated ResearchPacket with deterministic mode-specific
+priorities:
+
+```bash
+research --root data context \
+  --thread <thread-id> \
+  --mode critique \
+  --limit 8 \
+  "Why might the current covariance hypothesis be wrong?"
+
+research --root data context \
+  --thread <thread-id> \
+  --mode brainstorm \
+  --blind-first "Independent candidate bases considered before memory retrieval" \
+  "What other principled bases should we test?"
+```
+
+Available modes are `recall`, `analysis`, `critique`, `brainstorm`, and
+`decision`. Brainstorm mode requires the caller's blind-first pass. Packets carry
+up to 10 frontier/memory/history/tension items, compact locator-only evidence, and an
+explicit corpus mismatch when nothing compatible is found. No LLM reranking is
+used.
+
 ## Read-only Pi demo
 
 ```bash

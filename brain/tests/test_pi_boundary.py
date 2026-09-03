@@ -41,4 +41,17 @@ def test_pi_instructions_require_filters_and_corpus_mismatch() -> None:
     assert "encode them in the tool's structured `filters`" in INSTRUCTIONS
     assert "A false access constraint excludes cards where the field" in INSTRUCTIONS
     assert "the corpus does not establish it" in INSTRUCTIONS
-    assert "limit` at most\n5" in INSTRUCTIONS
+    assert "keep `limit` at most 5" in INSTRUCTIONS
+
+
+def test_pi_exposes_bounded_frontier_context_without_mutation_tools() -> None:
+    assert 'name: "research_context"' in EXTENSION
+    assert 'args = ["context", params.question' in EXTENSION
+    assert 'Type.Literal("critique")' in EXTENSION
+    assert 'Type.Literal("brainstorm")' in EXTENSION
+    assert 'blind_first: Type.String' in EXTENSION
+    assert 'if ("blind_first" in params)' in EXTENSION
+    assert "Never send `blind_first` in another mode" in INSTRUCTIONS
+    assert "Research packet exceeds the tool output limit" in EXTENSION
+    for forbidden in ("research_ingest", "research_extract", "research_review", "research_delete"):
+        assert forbidden not in EXTENSION

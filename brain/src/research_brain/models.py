@@ -165,3 +165,19 @@ class SearchHitV2:
     def rank(self) -> float:
         """Compatibility alias for the former lexical SearchHit API."""
         return self.fused_score
+
+
+@dataclass(frozen=True)
+class ResearchPacketV1:
+    mode: str
+    question: str
+    thread_id: str | None
+    frontier: dict[str, Any] | None
+    blind_first: str | None
+    relevant_memory: tuple[dict[str, Any], ...]
+    historical_attempts: tuple[dict[str, Any], ...]
+    counterevidence: tuple[dict[str, Any], ...]
+    tensions: tuple[dict[str, Any], ...]
+    optional_distant_connections: tuple[dict[str, Any], ...]
+    evidence_refs: tuple[dict[str, Any], ...]
+    corpus_mismatch: str | None

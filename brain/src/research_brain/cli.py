@@ -132,6 +132,16 @@ def build_parser() -> argparse.ArgumentParser:
     usage_add.add_argument("--what-would-reconsider", required=True)
     usage_add.add_argument("--body")
 
+    context = commands.add_parser("context", help="Compile a task-specific ResearchPacket")
+    context.add_argument("question")
+    context.add_argument("--thread")
+    context.add_argument("--mode", choices=("recall", "analysis", "critique", "brainstorm", "decision"),
+                         default="analysis")
+    context.add_argument("--filters", default="{}")
+    context.add_argument("--limit", type=int, default=8)
+    context.add_argument("--blind-first")
+    context.add_argument("--semantic-live", action="store_true")
+
     object_parser = commands.add_parser("object", help="Generic research-object operations")
     object_commands = object_parser.add_subparsers(dest="object_command", required=True)
     object_add = object_commands.add_parser("add")
@@ -268,6 +278,12 @@ def run(args: argparse.Namespace) -> Any:
             args.body or args.reason, candidate=args.candidate, disposition=args.disposition,
             reason=args.reason, what_would_reconsider=args.what_would_reconsider,
             thread_id=args.thread,
+        )
+    if args.command == "context":
+        return brain.context(
+            args.question, thread_id=args.thread, mode=args.mode,
+            filters=RetrievalFiltersV1(**_json_object(args.filters, label="filters")),
+            limit=args.limit, blind_first=args.blind_first, semantic_live=args.semantic_live,
         )
     if args.command == "object" and args.object_command == "add":
         return brain.create_research_object(

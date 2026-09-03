@@ -124,6 +124,16 @@ function boundedObject(stdout: string): string {
 	return text;
 }
 
+function boundedPacket(stdout: string): string {
+	const parsed = JSON.parse(stdout);
+	if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+		throw new Error("Research context returned an invalid packet");
+	}
+	const text = JSON.stringify(parsed, null, 2);
+	if (text.length > MAX_TOOL_OUTPUT_CHARS) throw new Error("Research packet exceeds the tool output limit");
+	return text;
+}
+
 const originValue = Type.Union([
 	Type.Literal("SOURCE_EXPLICIT"), Type.Literal("SOURCE_IMPLIED"),
 	Type.Literal("AGENT_EXTRACTED"), Type.Literal("AGENT_INTERPRETED"),
@@ -174,6 +184,43 @@ const recallTool = defineTool({
 	},
 });
 
+const contextTool = defineTool({
+	name: "research_context",
+	label: "Research context",
+	description: "Compile a compact frontier-aware ResearchPacket for recall, analysis, critique, brainstorm, or decision work.",
+	parameters: Type.Union([
+		Type.Object({
+			question: Type.String({ minLength: 1, maxLength: 2000 }),
+			thread_id: Type.Optional(Type.String({ pattern: /^obj_[a-f0-9]{12,64}$/.source })),
+			mode: Type.Union([
+				Type.Literal("recall"), Type.Literal("analysis"), Type.Literal("critique"),
+				Type.Literal("decision"),
+			]),
+			filters: Type.Optional(retrievalFilters),
+			limit: Type.Optional(Type.Integer({ minimum: 1, maximum: MAX_RECALL_LIMIT })),
+		}, { additionalProperties: false }),
+		Type.Object({
+			question: Type.String({ minLength: 1, maxLength: 2000 }),
+			thread_id: Type.Optional(Type.String({ pattern: /^obj_[a-f0-9]{12,64}$/.source })),
+			mode: Type.Literal("brainstorm"),
+			filters: Type.Optional(retrievalFilters),
+			limit: Type.Optional(Type.Integer({ minimum: 1, maximum: MAX_RECALL_LIMIT })),
+			blind_first: Type.String({ minLength: 1, maxLength: 20_000 }),
+		}, { additionalProperties: false }),
+	]),
+	async execute(_id, params, signal) {
+		const args = ["context", params.question, "--mode", params.mode, "--limit", String(params.limit || DEFAULT_RECALL_LIMIT)];
+		if (params.thread_id) args.push("--thread", params.thread_id);
+		if (params.filters) args.push("--filters", JSON.stringify(params.filters));
+		if ("blind_first" in params) args.push("--blind-first", params.blind_first);
+		const text = boundedPacket(await runResearch(args, signal));
+		return {
+			content: [{ type: "text", text }],
+			details: { mode: params.mode, thread_id: params.thread_id, max_output_chars: MAX_TOOL_OUTPUT_CHARS },
+		};
+	},
+});
+
 const evidenceTool = defineTool({
 	name: "research_evidence",
 	label: "Research evidence",
@@ -199,6 +246,7 @@ const objectTool = defineTool({
 });
 
 export default function (pi: ExtensionAPI) {
+	pi.registerTool(contextTool);
 	pi.registerTool(recallTool);
 	pi.registerTool(evidenceTool);
 	pi.registerTool(objectTool);

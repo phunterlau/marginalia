@@ -44,6 +44,17 @@ def main() -> int:
         for event in events if event.get("type") == "tool_execution_start"
     ]
     retrieved_ids: set[str] = set()
+
+    def collect_ids(value: object) -> None:
+        if isinstance(value, dict):
+            if isinstance(value.get("record_id"), str):
+                retrieved_ids.add(value["record_id"])
+            for item in value.values():
+                collect_ids(item)
+        elif isinstance(value, list):
+            for item in value:
+                collect_ids(item)
+
     for event in events:
         if event.get("type") != "tool_execution_end":
             continue
@@ -54,11 +65,7 @@ def main() -> int:
                 payload = json.loads(content["text"])
             except (json.JSONDecodeError, TypeError):
                 continue
-            records = payload if isinstance(payload, list) else [payload]
-            retrieved_ids.update(
-                record["record_id"] for record in records
-                if isinstance(record, dict) and isinstance(record.get("record_id"), str)
-            )
+            collect_ids(payload)
     final_answer = ""
     for event in events:
         message = event.get("message", {})
@@ -71,7 +78,7 @@ def main() -> int:
         "command": command, "returncode": completed.returncode, "built_in_tools_disabled": True,
         "brain_sha256_before": before_hash, "brain_sha256_after": after_hash,
         "brain_unchanged": before_hash == after_hash,
-        "allowed_tools": ["research_recall", "research_evidence", "research_object"],
+        "allowed_tools": ["research_context", "research_recall", "research_evidence", "research_object"],
         "tool_calls": tool_calls, "retrieved_ids": sorted(retrieved_ids), "final_answer": final_answer,
         "stdout": completed.stdout, "stderr": completed.stderr,
     }
