@@ -22,8 +22,10 @@ from .store.sqlite import utc_now
 
 
 PARSER_NAME = "structural"
-PARSER_VERSION = "structural-v3"
-PARSER_CONFIG_DIGEST = hashlib.sha256(b"in-place-reachable-tex-includes;decoded-char-spans;v3").hexdigest()
+PARSER_VERSION = "structural-v4"
+PARSER_CONFIG_DIGEST = hashlib.sha256(
+    b"explicit-or-comment-aware-main-tex;in-place-reachable-tex-includes;decoded-char-spans;v4"
+).hexdigest()
 _ARXIV_ID = re.compile(r"(?:arxiv\.org/(?:abs|pdf|html)/|huggingface\.co/papers/)(\d{4}\.\d{4,5})(v\d+)?", re.IGNORECASE)
 
 
@@ -40,6 +42,7 @@ class ResolvedSource:
     requested_uri: str | None = None
     resolution_state: str = "resolved"
     license_uri: str | None = None
+    main_tex: str | None = None
 
 
 def canonicalize_url(url: str) -> str:
@@ -177,7 +180,7 @@ class Ingestor:
     def ingest_manifest(self, manifest_path: str | Path) -> IngestResult:
         manifest_path = Path(manifest_path).expanduser().resolve(strict=True)
         manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
-        required = {"arxiv_id", "version", "source_url", "source_file", "sha256"}
+        required = {"arxiv_id", "version", "source_url", "source_file", "sha256", "main_tex"}
         if not isinstance(manifest, dict) or not required <= manifest.keys():
             raise ValueError(f"Invalid paper fixture manifest: {manifest_path}")
         source_path = (manifest_path.parent / manifest["source_file"]).resolve(strict=True)
@@ -193,6 +196,7 @@ class Ingestor:
             canonical_document_uri=f"https://arxiv.org/abs/{base_id}", version_label=version,
             external_ids={"arxiv": base_id}, requested_uri=str(manifest["source_url"]),
             resolution_state="resolved", license_uri=manifest.get("license_uri"),
+            main_tex=str(manifest["main_tex"]),
         )
         return self._ingest_resolved(resolved)
 
@@ -207,7 +211,7 @@ class Ingestor:
         self._archive_once(archive_path, resolved.data)
 
         blocks = (
-            parse_arxiv_source(resolved.data)
+            parse_arxiv_source(resolved.data, main_member=resolved.main_tex)
             if resolved.kind == "source_archive"
             else parse_document(resolved.data, name=resolved.name, content_type=resolved.content_type)
         )
@@ -224,7 +228,8 @@ class Ingestor:
                      "resolution_state": resolved.resolution_state, "created_at": now},
             compilation={"id": compilation_id, "parser_name": PARSER_NAME,
                          "parser_version": PARSER_VERSION, "config_digest": PARSER_CONFIG_DIGEST,
-                         "diagnostics": {"source_kind": resolved.kind}, "created_at": now},
+                         "diagnostics": {"source_kind": resolved.kind, "main_tex": resolved.main_tex},
+                         "created_at": now},
             blocks=blocks,
         )
         return IngestResult(document_id, version_id, asset_id, sha256, len(blocks),

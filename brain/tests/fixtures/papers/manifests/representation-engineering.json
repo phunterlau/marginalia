@@ -1,0 +1,14 @@
+{
+  "arxiv_id": "2310.01405",
+  "version": "v4",
+  "title": "Representation Engineering: A Top-Down Approach to AI Transparency",
+  "source_url": "https://arxiv.org/src/2310.01405v4",
+  "source_file": "../sources/2310.01405v4.tar.gz",
+  "sha256": "07688b02e748311bcd4621899685c4e99a02cfca671c950fe701b6bd7895315e",
+  "bytes": 13244300,
+  "license_uri": null,
+  "license_status": "not established by the arXiv API; local test use only",
+  "main_tex": "iclr2024_conference.tex",
+  "minimum_blocks": 380,
+  "minimum_equations": 5
+}

@@ -308,10 +308,31 @@ def _safe_tex_members(
     return members
 
 
-def _tex_document_order(members: dict[str, bytes]) -> list[str]:
+def _uncomment_tex(text: str) -> str:
+    return "\n".join(re.sub(r"(?<!\\)%.*", "", line) for line in text.splitlines())
+
+
+def _tex_document_order(members: dict[str, bytes], *, main_member: str | None = None) -> list[str]:
     decoded = {name: data.decode("utf-8", errors="replace") for name, data in members.items()}
-    candidates = [name for name, text in decoded.items() if r"\documentclass" in text or r"\documentstyle" in text]
-    main = min(candidates or decoded.keys(), key=lambda name: (name.count("/"), "main" not in name.lower(), len(name), name))
+    if main_member is not None:
+        normalized = Path(main_member).as_posix().lstrip("./")
+        if normalized not in decoded:
+            raise ValueError(f"declared main TeX member is missing: {main_member}")
+        main = normalized
+    else:
+        uncommented = {name: _uncomment_tex(text) for name, text in decoded.items()}
+        candidates = [name for name, text in uncommented.items()
+                      if r"\documentclass" in text or r"\documentstyle" in text]
+        main = min(
+            candidates or decoded.keys(),
+            key=lambda name: (
+                name.count("/"),
+                r"\begin{document}" not in uncommented.get(name, ""),
+                Path(name).stem.lower() not in {"main", "paper", "manuscript", "submission"},
+                len(name),
+                name,
+            ),
+        )
     ordered: list[str] = []
     seen: set[str] = set()
 
@@ -334,11 +355,11 @@ def _tex_document_order(members: dict[str, bytes]) -> list[str]:
     return ordered
 
 
-def parse_arxiv_source(data: bytes) -> list[ParsedBlock]:
+def parse_arxiv_source(data: bytes, *, main_member: str | None = None) -> list[ParsedBlock]:
     members = _safe_tex_members(data)
     blocks: list[ParsedBlock] = []
     decoded = {name: value.decode("utf-8", errors="replace") for name, value in members.items()}
-    main = _tex_document_order(members)[0]
+    main = _tex_document_order(members, main_member=main_member)[0]
     seen: set[str] = set()
 
     def resolve_reference(name: str, referenced: str) -> str | None:

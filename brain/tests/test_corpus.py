@@ -7,6 +7,7 @@ import tempfile
 import pytest
 
 from research_brain import Brain
+from research_brain.benchmark import benchmark_corpus_queries
 
 
 def test_pinned_corpus_ingests_offline_with_exact_versions_and_thresholds() -> None:
@@ -36,3 +37,10 @@ def test_pinned_corpus_ingests_offline_with_exact_versions_and_thresholds() -> N
             assert document["external_ids"]["arxiv"] == manifest["arxiv_id"]
             assert document["versions"][0]["version_label"] == manifest["version"]
             assert document["versions"][0]["resolution_state"] == "resolved"
+        report = benchmark_corpus_queries(
+            brain, Path(__file__).parents[1] / "evals" / "corpus-query-v1.json",
+            iterations=20,
+        )
+        assert report.passed
+        assert report.papers == len(manifests)
+        assert report.recall_at_5 == 1.0

@@ -1,0 +1,47 @@
+{
+  "schema": "CorpusQueryBenchmarkV1",
+  "minimum_recall_at_5": 1.0,
+  "maximum_p95_ms": 100.0,
+  "cases": [
+    {
+      "name": "dpo-preference-objective",
+      "query": "implicit reward Bradley Terry",
+      "target_arxiv": "2305.18290"
+    },
+    {
+      "name": "rome-causal-tracing",
+      "query": "causal tracing corrupted subject",
+      "target_arxiv": "2202.05262"
+    },
+    {
+      "name": "refusal-direction",
+      "query": "difference means harmful harmless",
+      "target_arxiv": "2406.11717"
+    },
+    {
+      "name": "logit-gap-steering",
+      "query": "KL reward proxy candidate filtering",
+      "target_arxiv": "2506.24056"
+    },
+    {
+      "name": "activation-addition",
+      "query": "injection coefficient prompt pair",
+      "target_arxiv": "2308.10248"
+    },
+    {
+      "name": "representation-reading",
+      "query": "representation reading PCA",
+      "target_arxiv": "2310.01405"
+    },
+    {
+      "name": "contrastive-activation-addition",
+      "query": "contrastive activation addition residual stream",
+      "target_arxiv": "2312.06681"
+    },
+    {
+      "name": "sparse-autoencoder-features",
+      "query": "sparse autoencoder superposition monosemantic",
+      "target_arxiv": "2309.08600"
+    }
+  ]
+}

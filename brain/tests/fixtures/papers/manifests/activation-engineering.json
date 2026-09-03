@@ -1,0 +1,14 @@
+{
+  "arxiv_id": "2308.10248",
+  "version": "v5",
+  "title": "Steering Language Models With Activation Engineering",
+  "source_url": "https://arxiv.org/src/2308.10248v5",
+  "source_file": "../sources/2308.10248v5.tar.gz",
+  "sha256": "89f52a8cb174c5289c9a84ebbb12528d5b71acb72aac5f5108c140260829e98b",
+  "bytes": 1103538,
+  "license_uri": null,
+  "license_status": "not established by the arXiv API; local test use only",
+  "main_tex": "iclr2025_conference.tex",
+  "minimum_blocks": 250,
+  "minimum_equations": 2
+}

@@ -1,0 +1,14 @@
+{
+  "arxiv_id": "2312.06681",
+  "version": "v4",
+  "title": "Steering Llama 2 via Contrastive Activation Addition",
+  "source_url": "https://arxiv.org/src/2312.06681v4",
+  "source_file": "../sources/2312.06681v4.tar.gz",
+  "sha256": "2cda1f5e2e714a6621d111dd9201edb6e4a344e1d2cba21b36cd6199b4bbc3d3",
+  "bytes": 10995871,
+  "license_uri": null,
+  "license_status": "not established by the arXiv API; local test use only",
+  "main_tex": "acl2023.tex",
+  "minimum_blocks": 160,
+  "minimum_equations": 1
+}

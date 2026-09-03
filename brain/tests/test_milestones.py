@@ -126,6 +126,36 @@ class MilestoneTests(unittest.TestCase):
         self.assertTrue(any("Useful evidence" in item.raw_text for item in blocks))
         self.assertFalse(any("Must not be indexed" in item.raw_text for item in blocks))
 
+    def test_main_tex_detection_ignores_commented_documentclass(self) -> None:
+        archive_bytes = io.BytesIO()
+        with tarfile.open(fileobj=archive_bytes, mode="w:gz") as archive:
+            files = {
+                "preamble.tex": b"% \\documentclass{article}\nNot paper content.\n",
+                "paper.tex": rb"\documentclass{article}\begin{document}Actual paper content.\end{document}",
+            }
+            for name, contents in files.items():
+                info = tarfile.TarInfo(name)
+                info.size = len(contents)
+                archive.addfile(info, io.BytesIO(contents))
+        blocks = parse_arxiv_source(archive_bytes.getvalue())
+        self.assertTrue(any("Actual paper content" in item.raw_text for item in blocks))
+        self.assertFalse(any("Not paper content" in item.raw_text for item in blocks))
+
+    def test_explicit_main_tex_is_authoritative(self) -> None:
+        archive_bytes = io.BytesIO()
+        with tarfile.open(fileobj=archive_bytes, mode="w:gz") as archive:
+            files = {
+                "short.tex": rb"\documentclass{article}\begin{document}Wrong candidate.\end{document}",
+                "submission.tex": rb"\documentclass{article}\begin{document}Declared paper.\end{document}",
+            }
+            for name, contents in files.items():
+                info = tarfile.TarInfo(name)
+                info.size = len(contents)
+                archive.addfile(info, io.BytesIO(contents))
+        blocks = parse_arxiv_source(archive_bytes.getvalue(), main_member="submission.tex")
+        self.assertTrue(any("Declared paper" in item.raw_text for item in blocks))
+        self.assertFalse(any("Wrong candidate" in item.raw_text for item in blocks))
+
     def test_latest_arxiv_is_resolved_before_source_download(self) -> None:
         archive_bytes = io.BytesIO()
         with tarfile.open(fileobj=archive_bytes, mode="w:gz") as archive:

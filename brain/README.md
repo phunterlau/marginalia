@@ -154,6 +154,20 @@ up to 10 frontier/memory/history/tension items, compact locator-only evidence, a
 explicit corpus mismatch when nothing compatible is found. No LLM reranking is
 used.
 
+The local-only full corpus currently pins eight TeX source revisions spanning
+preference optimization, model editing, activation steering, representation
+reading, sparse-feature learning, refusal mediation, and forward-pass diagnostics.
+After fetching the excluded archives, load and benchmark them with:
+
+```bash
+research --root data corpus load tests/fixtures/papers/manifests
+research --root data corpus benchmark evals/corpus-query-v1.json --iterations 25
+```
+
+The benchmark fails unless every paper-specific target is found in the top five
+and warm lexical-query p95 is at most 100 ms. It reports paper/block counts and
+per-case ranks so corpus variety and speed remain inspectable.
+
 ## Read-only Pi demo
 
 ```bash

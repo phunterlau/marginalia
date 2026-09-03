@@ -1,0 +1,14 @@
+{
+  "arxiv_id": "2309.08600",
+  "version": "v3",
+  "title": "Sparse Autoencoders Find Highly Interpretable Features in Language Models",
+  "source_url": "https://arxiv.org/src/2309.08600v3",
+  "source_file": "../sources/2309.08600v3.tar.gz",
+  "sha256": "edb99336b36d2f6b74fec6e53eee60a5ffc9b38f6661cb70c73b78ac8ef4b352",
+  "bytes": 3772863,
+  "license_uri": null,
+  "license_status": "not established by the arXiv API; local test use only",
+  "main_tex": "iclr_main.tex",
+  "minimum_blocks": 220,
+  "minimum_equations": 2
+}
