@@ -1,0 +1,58 @@
+{
+  "schema": "RetrievalEvaluationV1",
+  "cases": [
+    {
+      "name": "exact-method",
+      "query": "difference-in-means harmful harmless activations",
+      "kinds": ["method_card"],
+      "target_title": "Difference-in-means refusal-direction extraction",
+      "must_retrieve": true
+    },
+    {
+      "name": "exact-math-method",
+      "query": "logit gap KL reward proxy scoring",
+      "kinds": ["method_card"],
+      "target_title": "Logit-gap steering with KL/reward proxy scoring",
+      "must_retrieve": true
+    },
+    {
+      "name": "semantic-direction",
+      "query": "centroid delta across behavioral cohorts",
+      "kinds": ["method_card"],
+      "filters": {"gradients_required": false},
+      "target_title": "Difference-in-means refusal-direction extraction",
+      "must_retrieve": true
+    },
+    {
+      "name": "semantic-direction-compact",
+      "query": "behavioral centroid translation",
+      "kinds": ["method_card"],
+      "filters": {"gradients_required": false},
+      "target_title": "Difference-in-means refusal-direction extraction",
+      "must_retrieve": true
+    },
+    {
+      "name": "semantic-intervention",
+      "query": "locate internal computation through counterfactual state restoration",
+      "kinds": ["method_card"],
+      "filters": {"gradients_required": false},
+      "target_title": "Causal Tracing of Factual Associations",
+      "must_retrieve": true
+    },
+    {
+      "name": "constraint-filter",
+      "query": "forward pass perturbation direction",
+      "kinds": ["method_card"],
+      "filters": {"gradients_required": false, "training_required": false},
+      "target_title": "Logit-gap steering with KL/reward proxy scoring",
+      "must_retrieve": true
+    },
+    {
+      "name": "review-isolation",
+      "query": "directional ablation",
+      "kinds": ["method_card"],
+      "must_retrieve": false,
+      "must_exclude_title": "Directional ablation"
+    }
+  ]
+}

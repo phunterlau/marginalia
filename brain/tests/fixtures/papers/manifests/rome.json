@@ -1,0 +1,14 @@
+{
+  "arxiv_id": "2202.05262",
+  "version": "v5",
+  "title": "Locating and Editing Factual Associations in GPT",
+  "source_url": "https://arxiv.org/src/2202.05262v5",
+  "source_file": "../sources/2202.05262v5.tar.gz",
+  "sha256": "b98f9baa6bfa132ea1a8e63cbd604a604cf8214832809efa0ba170228d5a911e",
+  "bytes": 7489414,
+  "license_uri": null,
+  "license_status": "not established by the arXiv API; local test use only",
+  "main_tex": "main.tex",
+  "minimum_blocks": 160,
+  "minimum_equations": 4
+}

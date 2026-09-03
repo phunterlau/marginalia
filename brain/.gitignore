@@ -1,0 +1,13 @@
+/.venv/
+/build/
+/data/*
+!/data/.gitkeep
+/artifacts/pi-demo/*
+!/artifacts/pi-demo/.gitkeep
+/tests/fixtures/papers/sources/*
+!/tests/fixtures/papers/sources/.gitkeep
+.uv-cache/
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/

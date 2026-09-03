@@ -1,0 +1,14 @@
+{
+  "arxiv_id": "2305.18290",
+  "version": "v3",
+  "title": "Direct Preference Optimization: Your Language Model is Secretly a Reward Model",
+  "source_url": "https://arxiv.org/src/2305.18290v3",
+  "source_file": "../sources/2305.18290v3.tar.gz",
+  "sha256": "750054a6d13d9f79559d6defbfa68432e2a8c8959f0b7e7e37c622c1740653cc",
+  "bytes": 1023207,
+  "license_uri": null,
+  "license_status": "not established by the arXiv API; local test use only",
+  "main_tex": "main.tex",
+  "minimum_blocks": 200,
+  "minimum_equations": 30
+}

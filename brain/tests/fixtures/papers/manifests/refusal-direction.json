@@ -1,0 +1,14 @@
+{
+  "arxiv_id": "2406.11717",
+  "version": "v3",
+  "title": "Refusal in Language Models Is Mediated by a Single Direction",
+  "source_url": "https://arxiv.org/src/2406.11717v3",
+  "source_file": "../sources/2406.11717v3.tar.gz",
+  "sha256": "b2c284cd34b73094ad74b7e2e0605cd76640d32e205e80cbbdb4c191ac4df159",
+  "bytes": 199087,
+  "license_uri": null,
+  "license_status": "not established by the arXiv API; local test use only",
+  "main_tex": "refusal.tex",
+  "minimum_blocks": 300,
+  "minimum_equations": 10
+}

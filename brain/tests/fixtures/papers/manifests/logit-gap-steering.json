@@ -1,0 +1,14 @@
+{
+  "arxiv_id": "2506.24056",
+  "version": "v2",
+  "title": "Logit-Gap Steering: A Forward-Pass Diagnostic for Alignment Robustness",
+  "source_url": "https://arxiv.org/src/2506.24056v2",
+  "source_file": "../sources/2506.24056v2.tar.gz",
+  "sha256": "c7aa0026b2e8352491f25781e983713fc92fab7302e15f1dc0a2a3647b02bff0",
+  "bytes": 552552,
+  "license_uri": null,
+  "license_status": "not established by the arXiv API; local test use only",
+  "main_tex": "neurips_paper.tex",
+  "minimum_blocks": 390,
+  "minimum_equations": 15
+}
