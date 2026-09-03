@@ -2,9 +2,13 @@
 
 from __future__ import annotations
 
+import re
 from typing import Any
 
 from .models import EvidenceRefV1, MathCardV1, MethodCardV1
+
+
+BLOCK_REFERENCE = re.compile(r"\bblock_[A-Za-z0-9_?-]+")
 
 
 def _array(item: dict[str, Any]) -> dict[str, Any]:
@@ -85,6 +89,16 @@ def _optional_bool(value: Any, field: str) -> bool | None:
     return value
 
 
+def _embedded_block_refs(value: Any) -> set[str]:
+    if isinstance(value, str):
+        return set(BLOCK_REFERENCE.findall(value))
+    if isinstance(value, list):
+        return set().union(*(_embedded_block_refs(item) for item in value), set())
+    if isinstance(value, dict):
+        return set().union(*(_embedded_block_refs(item) for item in value.values()), set())
+    return set()
+
+
 def validate_method_cards(payload: Any, allowed_blocks: set[str]) -> list[MethodCardV1]:
     if not isinstance(payload, dict) or not isinstance(payload.get("cards"), list):
         raise ValueError("method extraction must contain a cards array")
@@ -99,6 +113,16 @@ def validate_method_cards(payload: Any, allowed_blocks: set[str]) -> list[Method
             evidence.append(EvidenceRefV1(ref["block_id"], _text(ref.get("relation"), "relation")))
         if not evidence:
             raise ValueError("method card requires at least one evidence reference")
+        narrative = {key: value for key, value in raw.items() if key != "evidence"}
+        narrative_refs = _embedded_block_refs(narrative)
+        invalid_refs = sorted(narrative_refs - allowed_blocks)
+        if invalid_refs:
+            raise ValueError(f"method card narrative references unknown evidence: {invalid_refs[0]}")
+        linked = {ref.block_id for ref in evidence}
+        evidence.extend(
+            EvidenceRefV1(block_id, "Referenced in structured card narrative.")
+            for block_id in sorted(narrative_refs - linked)
+        )
         result.append(MethodCardV1(
             name=_text(raw.get("name"), "name"), problem=_text(raw.get("problem"), "problem"),
             mechanism=_text(raw.get("mechanism"), "mechanism"), procedure=_strings(raw.get("procedure"), "procedure"),
@@ -128,6 +152,13 @@ def validate_math_cards(payload: Any, blocks: dict[str, dict[str, Any]]) -> list
         context = _strings(raw.get("context_block_ids"), "context_block_ids")
         if any(item not in blocks for item in context):
             raise ValueError("math card context references a block outside the extraction input")
+        narrative = {
+            key: value for key, value in raw.items()
+            if key not in {"equation_block_id", "context_block_ids"}
+        }
+        invalid_refs = sorted(_embedded_block_refs(narrative) - {equation_id, *context})
+        if invalid_refs:
+            raise ValueError(f"math card narrative references unlinked evidence: {invalid_refs[0]}")
         raw_symbols = raw.get("symbols")
         if not isinstance(raw_symbols, list) or not all(
             isinstance(item, dict) and isinstance(item.get("symbol"), str) and isinstance(item.get("meaning"), str)

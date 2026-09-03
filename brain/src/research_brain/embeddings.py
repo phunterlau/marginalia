@@ -53,7 +53,10 @@ class EmbeddingIndexer:
         if not os.getenv("OPENAI_API_KEY") and self.provider_factory is None:
             raise RuntimeError("OPENAI_API_KEY is required for --live embedding indexing")
         digest = hashlib.sha256(json.dumps(records, sort_keys=True).encode()).hexdigest()
-        run_id = stable_id("gen", "embeddings", model, digest, utc_now() if force else "canonical")
+        run_id = stable_id(
+            "gen", "embeddings", model, version, "float32-vector-v1", digest,
+            utc_now() if force else "canonical",
+        )
         run_id, created = self.store.begin_generation(
             run_id=run_id, task="embeddings", provider="openai", model=model, reasoning_effort=None,
             prompt_version=version, schema_version="float32-vector-v1", input_digest=digest,

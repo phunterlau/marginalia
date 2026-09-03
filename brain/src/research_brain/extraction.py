@@ -17,7 +17,7 @@ from .store.sqlite import SQLiteStore, utc_now
 
 
 MAX_CHARS = 180_000
-PROMPT_VERSION = "evidence-cards-v1"
+PROMPT_VERSION = "evidence-cards-v2"
 
 
 @dataclass(frozen=True)
@@ -42,7 +42,7 @@ class ExtractionResult:
     object_ids: tuple[str, ...]
 
 
-METHOD_INSTRUCTIONS = """Extract paper-specific methods only. Every claim must cite one or more supplied block_id values. Use null when an access requirement is not established. Do not infer experimental success or requirements that the evidence does not support."""
+METHOD_INSTRUCTIONS = """Extract paper-specific methods only. Every claim must cite one or more supplied block_id values. Every block identifier mentioned anywhere must exactly match a supplied block_id; include the principal supporting blocks in the formal evidence array. Use null when an access requirement is not established. Do not infer experimental success or requirements that the evidence does not support."""
 MATH_INSTRUCTIONS = """Interpret important displayed equations. Reference exactly one supplied equation_block_id and only supplied context block IDs. Do not reproduce or alter LaTeX; the application copies canonical LaTeX from evidence after validation."""
 
 
@@ -137,7 +137,10 @@ class Extractor:
         if not os.getenv("OPENAI_API_KEY") and self.provider_factory is None:
             raise RuntimeError("OPENAI_API_KEY is required for --live extraction")
         input_digest = hashlib.sha256(json.dumps(chunks, ensure_ascii=False, sort_keys=True).encode()).hexdigest()
-        run_id = stable_id("gen", task, input_digest, model, effort, utc_now() if force else "canonical")
+        run_id = stable_id(
+            "gen", task, input_digest, model, effort, PROMPT_VERSION, schema_version,
+            utc_now() if force else "canonical",
+        )
         run_id, created = self.store.begin_generation(
             run_id=run_id, task=task, provider="openai", model=model, reasoning_effort=effort,
             prompt_version=PROMPT_VERSION, schema_version=schema_version, input_digest=input_digest,

@@ -13,6 +13,7 @@ from research_brain import Brain, RetrievalFiltersV1
 from research_brain.evaluation import evaluate
 from research_brain.ingest import resolve_source
 from research_brain.parsing import parse_arxiv_source
+from research_brain.schemas import validate_method_cards
 
 
 PAPER = r"""# Direction Paper
@@ -209,6 +210,39 @@ class MilestoneTests(unittest.TestCase):
             self.assertEqual(connection.execute("SELECT count(*) FROM generation_attempts").fetchone()[0], 3)
             self.assertEqual(connection.execute("SELECT count(*) FROM research_objects").fetchone()[0], 0)
             self.assertEqual(connection.execute("SELECT status FROM generation_runs").fetchone()[0], "failed")
+
+    def test_method_validation_rejects_embedded_hallucinated_block_reference(self) -> None:
+        payload = FakeExtractionProvider().extract(
+            schema_name="MethodCardV1",
+            evidence=[{"block_id": "block_good", "raw_text": "paired contrast"}],
+        )["output"]
+        payload["cards"][0]["procedure"][0] += " [block_hallucinated?]"
+        with self.assertRaisesRegex(ValueError, "unknown evidence"):
+            validate_method_cards(payload, {"block_good"})
+
+    def test_method_validation_links_valid_narrative_references(self) -> None:
+        payload = FakeExtractionProvider().extract(
+            schema_name="MethodCardV1",
+            evidence=[{"block_id": "block_good", "raw_text": "paired contrast"}],
+        )["output"]
+        payload["cards"][0]["procedure"][0] += " [block_context]"
+        cards = validate_method_cards(payload, {"block_good", "block_context"})
+        assert {ref.block_id for ref in cards[0].evidence} == {"block_good", "block_context"}
+
+    def test_prompt_upgrade_creates_a_distinct_generation_run(self) -> None:
+        ingested = self.brain.ingest(self.paper)
+        first = self.brain.extract("methods", ingested.document_id, live=True)
+        with patch("research_brain.extraction.PROMPT_VERSION", "evidence-cards-next"):
+            second = self.brain.extract("methods", ingested.document_id, live=True)
+        self.assertNotEqual(first.run_id, second.run_id)
+        self.assertFalse(second.cached)
+        with self.brain.store.connect() as connection:
+            versions = {
+                row[0] for row in connection.execute(
+                    "SELECT prompt_version FROM generation_runs WHERE task='methods'"
+                )
+            }
+        self.assertEqual(versions, {"evidence-cards-v2", "evidence-cards-next"})
 
     def test_embeddings_hybrid_semantic_recall_and_filters(self) -> None:
         ingested = self.brain.ingest(self.paper)
