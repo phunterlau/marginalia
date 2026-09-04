@@ -1,6 +1,13 @@
 from __future__ import annotations
 
 from pathlib import Path
+import hashlib
+import importlib.util
+import json
+import os
+import subprocess
+import tempfile
+from unittest.mock import patch
 
 
 PROJECT = Path(__file__).resolve().parents[1]
@@ -55,3 +62,87 @@ def test_pi_exposes_bounded_frontier_context_without_mutation_tools() -> None:
     assert "Research packet exceeds the tool output limit" in EXTENSION
     for forbidden in ("research_ingest", "research_extract", "research_review", "research_delete"):
         assert forbidden not in EXTENSION
+
+
+def _load_demo_module() -> object:
+    path = PROJECT / "scripts" / "run_pi_demo.py"
+    spec = importlib.util.spec_from_file_location("run_pi_demo", path)
+    assert spec and spec.loader
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def test_pi_demo_runner_always_emits_a_machine_readable_gate_artifact() -> None:
+    module = _load_demo_module()
+    with tempfile.TemporaryDirectory() as temporary:
+        root = Path(temporary)
+        brain_root = root / "brain"
+        brain_root.mkdir()
+        database = brain_root / "brain.sqlite3"
+        database.write_bytes(b"immutable-fixture")
+        result_payload = json.dumps([{
+            "record_id": "obj_abc123def456",
+            "evidence": [
+                {"block_id": "block_abc123def456", "source_member": "paper.tex"},
+                {"block_id": "block_789abc123def", "source_member": "paper.tex"},
+            ],
+        }])
+        stdout = "\n".join([
+            json.dumps({
+                "type": "tool_execution_start", "toolName": "research_recall",
+                "args": {"query": "test"},
+            }),
+            json.dumps({
+                "type": "tool_execution_end",
+                "result": {"content": [{"type": "text", "text": result_payload}]},
+            }),
+            json.dumps({
+                "type": "message_end",
+                "message": {"role": "assistant", "content": [{
+                    "type": "text",
+                    "text": "Answer from v3 paper.tex:12: block_abc123def456 and block_789abc123def.",
+                }]},
+            }),
+        ])
+        completed = subprocess.CompletedProcess(["pi"], 0, stdout=stdout, stderr="")
+        environment = {
+            "RESEARCH_BRAIN_ROOT": str(brain_root),
+            "PI_BINARY": "/test/pi",
+        }
+        with patch.dict(os.environ, environment, clear=False), patch.object(
+            module.subprocess, "run", return_value=completed
+        ) as invoked:
+            assert module.main(["--output-dir", str(root / "artifacts")]) == 0
+        artifact_path = next((root / "artifacts").glob("*.json"))
+        artifact = json.loads(artifact_path.read_text(encoding="utf-8"))
+        assert artifact["gate_passed"]
+        assert artifact["brain_unchanged"]
+        assert artifact["retrieved_ids"] == [
+            "block_789abc123def", "block_abc123def456", "obj_abc123def456",
+        ]
+        assert artifact["citation_validation"]["ungrounded_block_ids"] == []
+        assert artifact["tool_calls"][0]["tool"] == "research_recall"
+        assert hashlib.sha256(database.read_bytes()).hexdigest() == artifact["brain_sha256_after"]
+        command = invoked.call_args.args[0]
+        assert "--no-builtin-tools" in command
+        assert "--no-session" in command
+
+
+def test_pi_demo_runner_writes_failure_artifact_on_timeout() -> None:
+    module = _load_demo_module()
+    with tempfile.TemporaryDirectory() as temporary:
+        root = Path(temporary)
+        brain_root = root / "brain"
+        brain_root.mkdir()
+        (brain_root / "brain.sqlite3").write_bytes(b"immutable-fixture")
+        environment = {"RESEARCH_BRAIN_ROOT": str(brain_root), "PI_BINARY": "/test/pi"}
+        timeout = subprocess.TimeoutExpired(["pi"], 2, output="partial", stderr="timed out")
+        with patch.dict(os.environ, environment, clear=False), patch.object(
+            module.subprocess, "run", side_effect=timeout
+        ):
+            assert module.main(["--output-dir", str(root / "artifacts"), "--timeout", "2"]) == 1
+        artifact = json.loads(next((root / "artifacts").glob("*.json")).read_text(encoding="utf-8"))
+        assert not artifact["gate_passed"]
+        assert artifact["returncode"] == 124
+        assert artifact["failure"]["type"] == "TimeoutExpired"
