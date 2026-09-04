@@ -1,0 +1,47 @@
+{
+  "schema": "CorpusQueryBenchmarkV1",
+  "minimum_recall_at_5": 1.0,
+  "maximum_p95_ms": 500.0,
+  "cases": [
+    {
+      "name": "preference-normalizer-cancellation",
+      "query": "cancel an unknown prompt normalization term by comparing preferred and rejected responses",
+      "target_arxiv": "2305.18290"
+    },
+    {
+      "name": "closed-form-association-edit",
+      "query": "insert a key value association with a closed form low rank weight update",
+      "target_arxiv": "2202.05262"
+    },
+    {
+      "name": "projection-removal-necessity-test",
+      "query": "find one hidden direction then test necessity by projection removal",
+      "target_arxiv": "2406.11717"
+    },
+    {
+      "name": "forward-only-candidate-scoring",
+      "query": "replace iterative gradient token swaps with one pass candidate scoring",
+      "target_arxiv": "2506.24056"
+    },
+    {
+      "name": "single-pair-activation-steering",
+      "query": "construct a steering vector from a contrasting prompt pair without training",
+      "target_arxiv": "2308.10248"
+    },
+    {
+      "name": "reading-versus-control",
+      "query": "separate representation correlation from causality using reading and control",
+      "target_arxiv": "2310.01405"
+    },
+    {
+      "name": "many-pair-activation-average",
+      "query": "average hidden state differences across many paired behavior examples",
+      "target_arxiv": "2312.06681"
+    },
+    {
+      "name": "sparse-superposition-dictionary",
+      "query": "learn an overcomplete sparse feature dictionary to disentangle superposition",
+      "target_arxiv": "2309.08600"
+    }
+  ]
+}

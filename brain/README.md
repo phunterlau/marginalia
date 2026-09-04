@@ -102,6 +102,17 @@ query. Later identical queries reuse the local float32 representation, including
 offline calls without `--semantic-live`; corpus embeddings and lexical recall
 remain available independently.
 
+After the eight local paper archives and corpus embeddings are present, exercise
+mechanism-level paraphrases without method or paper names:
+
+```bash
+research --root data corpus benchmark evals/research-moves-v1.json \
+  --semantic-live --iterations 5
+```
+
+The explicit live flag only fills missing query-vector cache entries; benchmark
+timings and final rankings use the offline cached path.
+
 ## Hot Frontier
 
 Frontier objects use the existing generic research-object ledger; no separate

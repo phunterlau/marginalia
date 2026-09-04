@@ -9,6 +9,14 @@ from research_brain.benchmark import benchmark_corpus_queries
 from research_brain.cli import main
 
 
+class FixedEmbeddingProvider:
+    def __init__(self, **_: object):
+        pass
+
+    def embed(self, texts: list[str]) -> list[list[float]]:
+        return [[1.0, 0.0] for _ in texts]
+
+
 def test_corpus_benchmark_measures_correctness_and_warm_latency() -> None:
     with tempfile.TemporaryDirectory() as temporary:
         root = Path(temporary)
@@ -55,3 +63,33 @@ def test_failed_benchmark_is_reported_with_nonzero_exit(capsys: object) -> None:
                      "--iterations", "1"]) == 1
         output = capsys.readouterr().out  # type: ignore[attr-defined]
         assert '"passed": false' in output
+
+
+def test_semantic_benchmark_materializes_queries_then_times_offline() -> None:
+    with tempfile.TemporaryDirectory() as temporary:
+        root = Path(temporary)
+        paper = root / "paper.md"
+        paper.write_text("# Hidden mechanism\n\nA paired latent contrast is useful.\n", encoding="utf-8")
+        brain = Brain(root / "brain", embedding_provider_factory=FixedEmbeddingProvider)
+        result = brain.ingest(paper)
+        with brain.store.connect() as connection:
+            connection.execute(
+                "UPDATE documents SET external_ids_json = ? WHERE id = ?",
+                (json.dumps({"arxiv": "test.semantic"}), result.document_id),
+            )
+        brain.index_embeddings("all", live=True)
+        spec = root / "semantic.json"
+        spec.write_text(json.dumps({
+            "minimum_recall_at_5": 1.0, "maximum_p95_ms": 500.0,
+            "cases": [{
+                "name": "semantic-only", "query": "distant paraphrase",
+                "target_arxiv": "test.semantic",
+            }],
+        }), encoding="utf-8")
+        report = benchmark_corpus_queries(brain, spec, iterations=2, semantic_live=True)
+        assert report.passed
+        assert report.semantic_cached
+        assert report.results[0]["rank"] == 1
+        # A fresh Brain has no provider but can use both cached corpus and query vectors.
+        offline = benchmark_corpus_queries(Brain(root / "brain"), spec, iterations=1)
+        assert offline.results[0]["rank"] == 1

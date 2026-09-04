@@ -22,6 +22,7 @@ class CorpusQueryBenchmarkV1:
     p50_ms: float
     p95_ms: float
     max_ms: float
+    semantic_cached: bool
     passed: bool
     results: tuple[dict[str, Any], ...]
 
@@ -49,6 +50,7 @@ def benchmark_corpus_queries(
     spec_path: str | Path,
     *,
     iterations: int = 25,
+    semantic_live: bool = False,
 ) -> CorpusQueryBenchmarkV1:
     if not 1 <= iterations <= 10_000:
         raise ValueError("iterations must be between 1 and 10000")
@@ -62,9 +64,9 @@ def benchmark_corpus_queries(
         if not isinstance(case.get("target_arxiv"), str):
             raise ValueError("every benchmark case requires target_arxiv")
 
-    # Warm SQLite pages and prepared FTS structures before measuring steady-state queries.
+    # Optionally materialize exact query vectors, then measure the repeatable offline path.
     for case in cases:
-        brain.search(case["query"], limit=5)
+        brain.search(case["query"], limit=5, semantic_live=semantic_live)
 
     timings: list[float] = []
     for _ in range(iterations):
@@ -98,6 +100,7 @@ def benchmark_corpus_queries(
     return CorpusQueryBenchmarkV1(
         papers, blocks, len(cases), iterations, recall,
         round(p50, 3), round(p95, 3), round(maximum, 3),
+        semantic_live,
         recall >= minimum_recall and p95 <= maximum_p95,
         tuple(results),
     )

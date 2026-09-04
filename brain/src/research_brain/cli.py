@@ -217,6 +217,10 @@ def build_parser() -> argparse.ArgumentParser:
     corpus_benchmark = corpus_commands.add_parser("benchmark")
     corpus_benchmark.add_argument("spec")
     corpus_benchmark.add_argument("--iterations", type=int, default=25)
+    corpus_benchmark.add_argument(
+        "--semantic-live", action="store_true",
+        help="Allow one embedding call per uncached benchmark query before offline timing",
+    )
 
     evaluate_parser = commands.add_parser("evaluate", help="Run a retrieval evaluation specification")
     evaluate_parser.add_argument("spec")
@@ -369,7 +373,9 @@ def run(args: argparse.Namespace) -> Any:
         return [brain.ingest_manifest(path) for path in manifests]
     if args.command == "corpus" and args.corpus_task == "benchmark":
         from .benchmark import benchmark_corpus_queries
-        return benchmark_corpus_queries(brain, args.spec, iterations=args.iterations)
+        return benchmark_corpus_queries(
+            brain, args.spec, iterations=args.iterations, semantic_live=args.semantic_live,
+        )
     if args.command == "evaluate":
         from .evaluation import evaluate
         return evaluate(brain, args.spec, semantic_live=args.semantic_live)
