@@ -36,6 +36,18 @@
       "question": "How did the current research question arise and what did it refine?",
       "must_include_kinds": ["research_question"],
       "must_include_relations": ["MOTIVATED_BY", "REFINES", "SPLITS_INTO", "ANSWERED_BY", "SUPERSEDED_BY"]
+    },
+    {
+      "name": "transfer-mismatch",
+      "question": "Could this mathematical device transfer to my current question, and where does the analogy fail?",
+      "must_include_kinds": ["transfer_hypothesis"],
+      "must_include_fields": ["mapping", "why_promising", "mismatches", "proposed_test"]
+    },
+    {
+      "name": "derived-frontier-snapshot",
+      "question": "What is established, unresolved, and worth testing next?",
+      "must_include_kinds": ["frontier_snapshot"],
+      "must_include_fields": ["established", "unresolved", "important_tensions", "negative_evidence", "pending_discriminating_experiments"]
     }
   ]
 }

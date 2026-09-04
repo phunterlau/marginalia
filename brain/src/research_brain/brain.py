@@ -10,8 +10,9 @@ from .context import ContextCompiler
 from .embeddings import EmbeddingIndexer, EmbeddingResult
 from .extraction import ExtractionResult, Extractor
 from .frontier import (HYPOTHESIS_STATUSES, QUESTION_RELATIONS, QUESTION_STATUSES,
-                       TENSION_STATUSES, USAGE_DISPOSITIONS, enum, mapping, optional_text,
-                       strings, text, thread_payload, update_thread_payload)
+                       TENSION_STATUSES, TRANSFER_STATUSES, USAGE_DISPOSITIONS, enum,
+                       mapping, optional_text, strings, text, thread_payload,
+                       update_thread_payload)
 from .ingest import Ingestor
 from .models import IngestResult, ResearchObject, ResearchPacketV1, RetrievalFiltersV1, SearchHitV2
 from .retrieval import Retriever
@@ -212,6 +213,125 @@ class Brain:
             "question": self.get_research_object(question.id),
             "links": self.store.get_links(question.id, direction="both"),
         }
+
+    def create_transfer_hypothesis(
+        self,
+        *,
+        target_question_id: str,
+        source_object_id: str,
+        mapping_claims: dict[str, Any],
+        why_promising: Sequence[str],
+        mismatches: Sequence[str],
+        proposed_test: str,
+        status: str = "proposed",
+        thread_id: str | None = None,
+        origin: str = "AGENT_PROPOSED",
+        review_state: str = "UNREVIEWED",
+    ) -> ResearchObject:
+        question = self._require_object(target_question_id, kind="research_question")
+        source = self._require_object(source_object_id)
+        if source.kind not in {"method_card", "math_card"}:
+            raise ValueError("source_object_id must reference a method_card or math_card")
+        if thread_id is not None:
+            self._require_object(thread_id, kind="research_thread")
+        payload = {
+            "schema": "TransferHypothesisV1",
+            "target_question_id": question.id,
+            "source_object_id": source.id,
+            "mapping": mapping(mapping_claims, "mapping_claims", required=True),
+            "why_promising": strings(why_promising, "why_promising"),
+            "mismatches": strings(mismatches, "mismatches"),
+            "proposed_test": text(proposed_test, "proposed_test"),
+            "status": enum(status, "transfer status", TRANSFER_STATUSES),
+            "thread_id": thread_id,
+        }
+        if not payload["why_promising"]:
+            raise ValueError("why_promising requires at least one reason")
+        if not payload["mismatches"]:
+            raise ValueError("mismatches requires at least one limitation")
+        return self.create_research_object(
+            kind="transfer_hypothesis", title=f"Transfer from {source.title or source.id}",
+            body=payload["proposed_test"], structured=payload, origin=origin,
+            review_state=review_state,
+        )
+
+    def create_frontier_snapshot(self, thread_id: str) -> ResearchObject:
+        thread = self._require_object(thread_id, kind="research_thread")
+        records = self.store.list_object_records(thread_id=thread.id)
+        observations = [
+            record["structured"].get("statement", record["body"])
+            for record in records
+            if record["kind"] == "observation" and record["review_state"] == "ACCEPTED"
+        ]
+        active_hypotheses = [
+            record["structured"].get("statement", record["body"])
+            for record in records
+            if record["kind"] == "hypothesis"
+            and record["structured"].get("status") in {"active", "supported", "weakened"}
+        ]
+        tensions = [
+            record["structured"].get("statement", record["body"])
+            for record in records
+            if record["kind"] == "tension" and record["structured"].get("status") == "unresolved"
+        ]
+        negative = [
+            {"candidate": record["structured"].get("candidate"),
+             "disposition": record["structured"].get("disposition"),
+             "reason": record["structured"].get("reason")}
+            for record in records
+            if record["kind"] == "usage_episode"
+        ]
+        events = []
+        for record in [self.get_research_object(thread.id), *records]:
+            if record is None or record["kind"] == "frontier_snapshot":
+                continue
+            events.extend(
+                {"event_type": item["event_type"], "object_id": item["object_id"],
+                 "created_at": item["created_at"]}
+                for item in self.get_history(record["id"])
+            )
+        events.sort(key=lambda item: (item["created_at"], item["object_id"] or ""))
+        prior = [record for record in records if record["kind"] == "frontier_snapshot"]
+        state = thread.structured
+        payload = {
+            "schema": "FrontierSnapshotV1",
+            "snapshot_number": len(prior) + 1,
+            "thread_id": thread.id,
+            "established": [*state.get("known", []), *observations],
+            "unresolved": [*state.get("unknown", []), *active_hypotheses],
+            "recent_changes": events[-10:],
+            "important_tensions": tensions,
+            "negative_evidence": negative,
+            "pending_discriminating_experiments": state.get("pending_experiments", []),
+            "source_object_ids": sorted({thread.id, *(record["id"] for record in records
+                                                     if record["kind"] != "frontier_snapshot")}),
+        }
+        sections = [
+            ("Established", payload["established"]),
+            ("Unresolved", payload["unresolved"]),
+            ("Important tensions", payload["important_tensions"]),
+            ("Pending discriminating experiments", payload["pending_discriminating_experiments"]),
+        ]
+        body = "\n\n".join(
+            f"{name}\n" + ("\n".join(f"- {item}" for item in values) if values else "- None recorded")
+            for name, values in sections
+        )
+        return self.create_research_object(
+            kind="frontier_snapshot",
+            title=f"{thread.title or thread.id} — Frontier Snapshot v{payload['snapshot_number']}",
+            body=body,
+            structured=payload,
+            origin="SYSTEM_DERIVED",
+            review_state="ACCEPTED",
+            actor="system",
+        )
+
+    def get_latest_frontier_snapshot(self, thread_id: str) -> dict[str, Any] | None:
+        self._require_object(thread_id, kind="research_thread")
+        snapshots = self.store.list_object_records(kinds=["frontier_snapshot"], thread_id=thread_id)
+        if not snapshots:
+            return None
+        return max(snapshots, key=lambda item: item["structured"].get("snapshot_number", 0))
 
     def record_observation(
         self,

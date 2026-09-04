@@ -204,3 +204,87 @@ def test_question_genealogy_is_typed_audited_and_idempotent(brain: Brain) -> Non
         "--root", str(brain.root), "question", "genealogy", child.id,
     ]))
     assert shown["links"][0]["direction"] == "incoming"
+
+
+def test_transfer_hypothesis_keeps_mapping_mismatch_and_test_explicit(brain: Brain) -> None:
+    thread = brain.create_thread("Transfer", goal="Test a borrowed mathematical basis.")
+    question = brain.create_research_question("Can covariance produce useful directions?", thread_id=thread.id)
+    method = brain.create_research_object(
+        kind="math_card", title="Covariance eigenspace", body="Project onto dominant eigenvectors.",
+        structured={"schema": "MathCardV1"}, origin="SOURCE_EXPLICIT", review_state="ACCEPTED",
+    )
+    transfer = brain.create_transfer_hypothesis(
+        target_question_id=question.id,
+        source_object_id=method.id,
+        mapping_claims={"dominant_eigenvectors": {"corresponds_to": "candidate directions"}},
+        why_promising=["forward-only", "ranked orthogonal directions"],
+        mismatches=["variance is not causal relevance"],
+        proposed_test="Compare against norm-matched random directions.",
+        thread_id=thread.id,
+    )
+    assert transfer.origin == "AGENT_PROPOSED"
+    assert transfer.review_state == "UNREVIEWED"
+    assert transfer.structured["mismatches"] == ["variance is not causal relevance"]
+    with pytest.raises(ValueError, match="method_card or math_card"):
+        brain.create_transfer_hypothesis(
+            target_question_id=question.id, source_object_id=thread.id,
+            mapping_claims={"x": "y"}, why_promising=["cheap"], mismatches=["weak"],
+            proposed_test="Run a control.", thread_id=thread.id,
+        )
+
+    parser = build_parser()
+    created = run(parser.parse_args([
+        "--root", str(brain.root), "transfer", "add", question.id, method.id,
+        "--mapping", json.dumps({"samples": {"corresponds_to": "activations"}}),
+        "--why-promising", json.dumps(["no gradients"]),
+        "--mismatches", json.dumps(["distribution-sensitive"]),
+        "--proposed-test", "Hold out a prompt distribution", "--thread", thread.id,
+    ]))
+    assert created.structured["mapping"]["samples"]["corresponds_to"] == "activations"
+
+
+def test_frontier_snapshots_are_deterministic_derived_materializations(brain: Brain) -> None:
+    thread = brain.create_thread(
+        "Snapshot", goal="Track the live frontier.", known=["Forward passes are available"],
+        unknown=["Which layer matters?"], pending_experiments=["Sweep layer under equal norm"],
+    )
+    hypothesis = brain.create_hypothesis(
+        "Middle layers are most causally useful.", thread_id=thread.id,
+        killer_test="No layer beats random controls.",
+    )
+    result = brain.create_research_object(
+        kind="experiment_result", body="Layer 12 changed the logit gap.",
+        structured={"schema": "ExperimentResultV1"}, origin="EXPERIMENT_OBSERVED",
+    )
+    brain.record_observation(
+        "Layer 12 changed the logit gap by 1.2.", thread_id=thread.id,
+        conditions={"norm": 1.0}, evidence_refs=[result.id],
+    )
+    brain.record_tension(
+        "High variance appears in a different layer.", thread_id=thread.id,
+        side_a=[hypothesis.id], side_b=[result.id],
+    )
+    brain.record_usage_episode(
+        "An earlier random search did not discriminate layers.",
+        candidate="random search", disposition="did_not_discriminate_hypotheses",
+        reason="too few prompts", what_would_reconsider="larger prompt set", thread_id=thread.id,
+    )
+    first = brain.create_frontier_snapshot(thread.id)
+    second = brain.create_frontier_snapshot(thread.id)
+    assert first.structured["snapshot_number"] == 1
+    assert second.structured["snapshot_number"] == 2
+    assert first.structured["established"] == second.structured["established"]
+    assert first.structured["source_object_ids"] == second.structured["source_object_ids"]
+    assert brain.get_latest_frontier_snapshot(thread.id)["id"] == second.id
+    assert first.origin == "SYSTEM_DERIVED"
+    assert "Which layer matters?" in first.body
+    packet = brain.context("What is unresolved and worth testing?", thread_id=thread.id, limit=10)
+    packet_ids = [item["record_id"] for item in packet.relevant_memory]
+    assert second.id in packet_ids
+    assert first.id not in packet_ids
+
+    parser = build_parser()
+    latest = run(parser.parse_args([
+        "--root", str(brain.root), "thread", "snapshot", thread.id, "--latest",
+    ]))
+    assert latest["id"] == second.id

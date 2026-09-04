@@ -13,7 +13,7 @@ from .store import SQLiteStore
 CONTEXT_MODES = {"recall", "analysis", "critique", "brainstorm", "decision"}
 FRONTIER_KINDS = {
     "research_question", "hypothesis", "observation", "interpretation",
-    "decision", "experiment", "experiment_result",
+    "decision", "experiment", "experiment_result", "transfer_hypothesis",
 }
 NEGATIVE_DISPOSITIONS = {
     "tried_and_failed", "considered_but_rejected", "not_applicable",
@@ -131,6 +131,10 @@ class ContextCompiler:
             for record in thread_records
             if record["kind"] in FRONTIER_KINDS
         ]
+        snapshots = [record for record in thread_records if record["kind"] == "frontier_snapshot"]
+        if snapshots:
+            latest = max(snapshots, key=lambda record: record["structured"].get("snapshot_number", 0))
+            frontier_items.insert(0, _record_item(latest, "latest derived snapshot of the selected frontier"))
         histories = [
             _record_item(record, "prior attempt or disposition from this research thread")
             for record in thread_records

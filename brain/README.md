@@ -136,6 +136,17 @@ research --root data question link \
   <refined-question-id> REFINES <original-question-id>
 
 research --root data question genealogy <question-id>
+
+research --root data transfer add \
+  <question-id> <math-or-method-card-id> \
+  --mapping '{"dominant_eigenvectors":{"corresponds_to":"candidate directions"}}' \
+  --why-promising '["forward-only","ranked orthogonal directions"]' \
+  --mismatches '["variance is observational, not necessarily causal"]' \
+  --proposed-test "Compare against norm-matched random directions" \
+  --thread <thread-id>
+
+research --root data thread snapshot <thread-id>
+research --root data thread snapshot <thread-id> --latest
 ```
 
 Thread updates replace only the supplied frontier fields and append a
@@ -147,6 +158,10 @@ Hypotheses record critical unknowns, strengthening and weakening evidence, and
 an optional killer test. Question links are sparse, append-only relations;
 `REFINES`, `SPLITS_INTO`, and `SUPERSEDED_BY` require question targets, while
 `MOTIVATED_BY` and `ANSWERED_BY` may point to another research object.
+Transfer hypotheses remain unreviewed proposals by default and must preserve an
+explicit mapping, mismatch list, and discriminating test. Frontier snapshots are
+deterministic, replaceable materializations; canonical observations and events
+remain unchanged and each snapshot lists its source object IDs.
 
 Compile a compact, deduplicated ResearchPacket with deterministic mode-specific
 priorities:

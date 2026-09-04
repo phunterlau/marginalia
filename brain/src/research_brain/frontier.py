@@ -17,6 +17,7 @@ QUESTION_RELATIONS = {
     "SUPERSEDED_BY",
 }
 TENSION_STATUSES = {"unresolved", "resolved", "superseded"}
+TRANSFER_STATUSES = {"proposed", "accepted", "tested", "rejected", "superseded"}
 USAGE_DISPOSITIONS = {
     "tried_and_failed",
     "considered_but_rejected",

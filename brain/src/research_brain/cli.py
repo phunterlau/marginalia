@@ -99,6 +99,9 @@ def build_parser() -> argparse.ArgumentParser:
     thread_update = thread_commands.add_parser("update")
     thread_update.add_argument("thread_id")
     thread_update.add_argument("--changes", required=True, help="ResearchThreadV1 field updates as JSON")
+    thread_snapshot = thread_commands.add_parser("snapshot")
+    thread_snapshot.add_argument("thread_id")
+    thread_snapshot.add_argument("--latest", action="store_true")
 
     hypothesis = commands.add_parser("hypothesis", help="Hypothesis operations")
     hypothesis_commands = hypothesis.add_subparsers(dest="hypothesis_command", required=True)
@@ -112,6 +115,18 @@ def build_parser() -> argparse.ArgumentParser:
     hypothesis_add.add_argument("--what-would-strengthen", default="[]")
     hypothesis_add.add_argument("--what-would-weaken", default="[]")
     hypothesis_add.add_argument("--killer-test")
+
+    transfer = commands.add_parser("transfer", help="Explicit cross-domain transfer hypotheses")
+    transfer_commands = transfer.add_subparsers(dest="transfer_command", required=True)
+    transfer_add = transfer_commands.add_parser("add")
+    transfer_add.add_argument("target_question_id")
+    transfer_add.add_argument("source_object_id")
+    transfer_add.add_argument("--mapping", required=True)
+    transfer_add.add_argument("--why-promising", required=True)
+    transfer_add.add_argument("--mismatches", required=True)
+    transfer_add.add_argument("--proposed-test", required=True)
+    transfer_add.add_argument("--status", default="proposed")
+    transfer_add.add_argument("--thread")
 
     observe = commands.add_parser("observe", help="Record an evidence-backed observation")
     observe.add_argument("statement")
@@ -270,6 +285,13 @@ def run(args: argparse.Namespace) -> Any:
         return result
     if args.command == "thread" and args.thread_command == "update":
         return brain.update_frontier(args.thread_id, _json_object(args.changes, label="changes"))
+    if args.command == "thread" and args.thread_command == "snapshot":
+        if args.latest:
+            result = brain.get_latest_frontier_snapshot(args.thread_id)
+            if result is None:
+                raise LookupError(f"No frontier snapshot found for: {args.thread_id}")
+            return result
+        return brain.create_frontier_snapshot(args.thread_id)
     if args.command == "hypothesis" and args.hypothesis_command == "add":
         return brain.create_hypothesis(
             args.statement, thread_id=args.thread, status=args.status,
@@ -279,6 +301,17 @@ def run(args: argparse.Namespace) -> Any:
             what_would_strengthen=_json_list(args.what_would_strengthen, label="what-would-strengthen"),
             what_would_weaken=_json_list(args.what_would_weaken, label="what-would-weaken"),
             killer_test=args.killer_test,
+        )
+    if args.command == "transfer" and args.transfer_command == "add":
+        return brain.create_transfer_hypothesis(
+            target_question_id=args.target_question_id,
+            source_object_id=args.source_object_id,
+            mapping_claims=_json_object(args.mapping, label="mapping"),
+            why_promising=_json_list(args.why_promising, label="why-promising"),
+            mismatches=_json_list(args.mismatches, label="mismatches"),
+            proposed_test=args.proposed_test,
+            status=args.status,
+            thread_id=args.thread,
         )
     if args.command == "observe":
         return brain.record_observation(
