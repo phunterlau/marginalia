@@ -24,6 +24,18 @@
       "question": "Why might the current covariance hypothesis be wrong?",
       "must_include_kinds": ["tension", "observation", "hypothesis"],
       "must_prioritize": ["counterevidence", "possible_explanations", "failure_modes"]
+    },
+    {
+      "name": "hypothesis-falsifiability",
+      "question": "What would decisively weaken or kill the current hypothesis?",
+      "must_include_kinds": ["hypothesis"],
+      "must_include_fields": ["critical_unknowns", "what_would_weaken", "killer_test"]
+    },
+    {
+      "name": "question-genealogy",
+      "question": "How did the current research question arise and what did it refine?",
+      "must_include_kinds": ["research_question"],
+      "must_include_relations": ["MOTIVATED_BY", "REFINES", "SPLITS_INTO", "ANSWERED_BY", "SUPERSEDED_BY"]
     }
   ]
 }

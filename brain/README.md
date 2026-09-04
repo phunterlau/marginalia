@@ -123,6 +123,19 @@ research --root data tension add \
   --side-a '["obj_<hypothesis-id>"]' \
   --side-b '["obj_<experiment-result-id>"]' \
   "High activation variance but weak behavioral perturbation effect."
+
+research --root data hypothesis add \
+  --thread <thread-id> \
+  --critical-unknowns '["Does the effect survive norm-matched controls?"]' \
+  --what-would-strengthen '["Replication across model families"]' \
+  --what-would-weaken '["No gain over random directions"]' \
+  --killer-test "A powered intervention shows no effect beyond controls" \
+  "A covariance eigenvector is a useful intervention direction."
+
+research --root data question link \
+  <refined-question-id> REFINES <original-question-id>
+
+research --root data question genealogy <question-id>
 ```
 
 Thread updates replace only the supplied frontier fields and append a
@@ -130,6 +143,10 @@ Thread updates replace only the supplied frontier fields and append a
 conditions and evidence references. Interpretations must reference Observation
 objects and remain unreviewed by default. Negative Usage Episodes require a
 controlled disposition, reason, and reconsideration condition.
+Hypotheses record critical unknowns, strengthening and weakening evidence, and
+an optional killer test. Question links are sparse, append-only relations;
+`REFINES`, `SPLITS_INTO`, and `SUPERSEDED_BY` require question targets, while
+`MOTIVATED_BY` and `ANSWERED_BY` may point to another research object.
 
 Compile a compact, deduplicated ResearchPacket with deterministic mode-specific
 priorities:

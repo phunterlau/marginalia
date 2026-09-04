@@ -75,6 +75,13 @@ def build_parser() -> argparse.ArgumentParser:
     question_add.add_argument("--available-access", default="[]")
     question_add.add_argument("--desired-output")
     question_add.add_argument("--thread")
+    question_link = question_commands.add_parser("link")
+    question_link.add_argument("source_question_id")
+    question_link.add_argument("relation")
+    question_link.add_argument("target_object_id")
+    question_link.add_argument("--metadata", default="{}")
+    question_genealogy = question_commands.add_parser("genealogy")
+    question_genealogy.add_argument("question_id")
 
     thread = commands.add_parser("thread", help="Hot Frontier thread operations")
     thread_commands = thread.add_subparsers(dest="thread_command", required=True)
@@ -101,6 +108,10 @@ def build_parser() -> argparse.ArgumentParser:
     hypothesis_add.add_argument("--status", default="active")
     hypothesis_add.add_argument("--evidence-for", default="[]")
     hypothesis_add.add_argument("--evidence-against", default="[]")
+    hypothesis_add.add_argument("--critical-unknowns", default="[]")
+    hypothesis_add.add_argument("--what-would-strengthen", default="[]")
+    hypothesis_add.add_argument("--what-would-weaken", default="[]")
+    hypothesis_add.add_argument("--killer-test")
 
     observe = commands.add_parser("observe", help="Record an evidence-backed observation")
     observe.add_argument("statement")
@@ -236,6 +247,13 @@ def run(args: argparse.Namespace) -> Any:
             desired_output=args.desired_output,
             thread_id=args.thread,
         )
+    if args.command == "question" and args.question_command == "link":
+        return brain.link_question(
+            args.source_question_id, args.relation, args.target_object_id,
+            metadata=_json_object(args.metadata, label="metadata"),
+        )
+    if args.command == "question" and args.question_command == "genealogy":
+        return brain.get_question_genealogy(args.question_id)
     if args.command == "thread" and args.thread_command == "add":
         return brain.create_thread(
             args.title, goal=args.goal, status=args.status,
@@ -257,6 +275,10 @@ def run(args: argparse.Namespace) -> Any:
             args.statement, thread_id=args.thread, status=args.status,
             evidence_for=_json_list(args.evidence_for, label="evidence-for"),
             evidence_against=_json_list(args.evidence_against, label="evidence-against"),
+            critical_unknowns=_json_list(args.critical_unknowns, label="critical-unknowns"),
+            what_would_strengthen=_json_list(args.what_would_strengthen, label="what-would-strengthen"),
+            what_would_weaken=_json_list(args.what_would_weaken, label="what-would-weaken"),
+            killer_test=args.killer_test,
         )
     if args.command == "observe":
         return brain.record_observation(

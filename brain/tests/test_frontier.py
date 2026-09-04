@@ -144,3 +144,63 @@ def test_question_and_cli_attach_to_thread(brain: Brain) -> None:
     assert changed.structured["pending_decisions"] == ["Run E43"]
     history = run(parser.parse_args(["--root", str(brain.root), "history", "--thread", cli_thread.id]))
     assert history[-1]["event_type"] == "frontier_updated"
+
+
+def test_hypothesis_v2_is_falsifiable_searchable_and_cli_compatible(brain: Brain) -> None:
+    thread = brain.create_thread("Causal basis", goal="Discriminate causal from correlational bases.")
+    hypothesis = brain.create_hypothesis(
+        "A covariance eigenvector is a useful intervention direction.",
+        thread_id=thread.id,
+        critical_unknowns=["Does the effect survive norm-matched controls?"],
+        what_would_strengthen=["Replication across three model families"],
+        what_would_weaken=["No gain over random directions"],
+        killer_test="A preregistered intervention shows no effect beyond random controls.",
+    )
+    assert hypothesis.structured["schema"] == "HypothesisV2"
+    assert hypothesis.structured["killer_test"].startswith("A preregistered")
+    assert brain.search("preregistered random controls", kinds=["hypothesis"])[0].record_id == hypothesis.id
+
+    parser = build_parser()
+    created = run(parser.parse_args([
+        "--root", str(brain.root), "hypothesis", "add", "A second falsifiable claim",
+        "--thread", thread.id,
+        "--critical-unknowns", json.dumps(["Which layer?"]),
+        "--what-would-strengthen", json.dumps(["Held-out replication"]),
+        "--what-would-weaken", json.dumps(["Sign reversal"]),
+        "--killer-test", "No effect in a powered test",
+    ]))
+    assert created.structured["critical_unknowns"] == ["Which layer?"]
+
+
+def test_question_genealogy_is_typed_audited_and_idempotent(brain: Brain) -> None:
+    thread = brain.create_thread("Question graph", goal="Keep sparse durable question history.")
+    original = brain.create_research_question("Which basis is causally useful?", thread_id=thread.id)
+    refinement = brain.create_research_question("Which basis beats matched random controls?", thread_id=thread.id)
+    observation = brain.create_research_object(
+        kind="experiment_result", title="E43", body="The activation basis beat controls.",
+        structured={"schema": "ExperimentResultV1"}, origin="EXPERIMENT_OBSERVED",
+    )
+    link = brain.link_question(refinement.id, "REFINES", original.id, metadata={"reason": "testable"})
+    brain.link_question(refinement.id, "ANSWERED_BY", observation.id)
+    repeated = brain.link_question(refinement.id, "REFINES", original.id, metadata={"reason": "testable"})
+    assert link == repeated
+    genealogy = brain.get_question_genealogy(original.id)
+    assert genealogy["links"][0]["direction"] == "incoming"
+    assert genealogy["links"][0]["source_id"] == refinement.id
+    assert [event["event_type"] for event in brain.get_history(refinement.id)].count("link_created") == 2
+    with pytest.raises(ValueError, match="target must be a research_question"):
+        brain.link_question(original.id, "SPLITS_INTO", observation.id)
+    with pytest.raises(ValueError, match="cannot link to itself"):
+        brain.link_question(original.id, "REFINES", original.id)
+
+    parser = build_parser()
+    child = brain.create_research_question("Which layer is most causal?", thread_id=thread.id)
+    linked = run(parser.parse_args([
+        "--root", str(brain.root), "question", "link", original.id, "SPLITS_INTO", child.id,
+        "--metadata", json.dumps({"branch": "layer"}),
+    ]))
+    assert linked["metadata"] == {"branch": "layer"}
+    shown = run(parser.parse_args([
+        "--root", str(brain.root), "question", "genealogy", child.id,
+    ]))
+    assert shown["links"][0]["direction"] == "incoming"

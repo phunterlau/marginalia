@@ -504,6 +504,78 @@ class SQLiteStore:
                 created_at=row["created_at"], updated_at=row["updated_at"],
             )
 
+    def create_link(
+        self,
+        *,
+        source_id: str,
+        relation: str,
+        target_id: str,
+        metadata: dict[str, Any] | None = None,
+        origin: str = "USER_STATED",
+        review_state: str = "ACCEPTED",
+        confidence: float | None = None,
+        actor: str = "user",
+    ) -> dict[str, Any]:
+        if origin not in ORIGINS:
+            raise ValueError(f"Unknown origin: {origin}")
+        if review_state not in REVIEW_STATES:
+            raise ValueError(f"Unknown review state: {review_state}")
+        if confidence is not None and not 0 <= confidence <= 1:
+            raise ValueError("confidence must be between 0 and 1")
+        metadata = metadata or {}
+        metadata_json = json.dumps(metadata, sort_keys=True)
+        now = utc_now()
+        with self.connect() as connection:
+            existing = connection.execute(
+                "SELECT * FROM links WHERE source_id=? AND relation=? AND target_id=?",
+                (source_id, relation, target_id),
+            ).fetchone()
+            if existing is None:
+                connection.execute(
+                    """INSERT INTO links(source_id, relation, target_id, metadata_json, origin,
+                                         review_state, confidence, created_at)
+                       VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+                    (source_id, relation, target_id, metadata_json, origin, review_state, confidence, now),
+                )
+                self._append_event(
+                    connection, "link_created", source_id,
+                    {"relation": relation, "target_id": target_id, "metadata": metadata,
+                     "origin": origin, "review_state": review_state, "confidence": confidence},
+                    actor,
+                )
+        links = self.get_links(source_id, direction="outgoing", relations=[relation])
+        return next(link for link in links if link["target_id"] == target_id)
+
+    def get_links(
+        self,
+        object_id: str,
+        *,
+        direction: str = "both",
+        relations: Sequence[str] | None = None,
+    ) -> list[dict[str, Any]]:
+        if direction not in {"incoming", "outgoing", "both"}:
+            raise ValueError(f"Unknown link direction: {direction}")
+        direction_clause = {
+            "incoming": "target_id = ?",
+            "outgoing": "source_id = ?",
+            "both": "(source_id = ? OR target_id = ?)",
+        }[direction]
+        params: list[Any] = [object_id] if direction != "both" else [object_id, object_id]
+        sql = f"SELECT * FROM links WHERE {direction_clause}"
+        if relations:
+            sql += f" AND relation IN ({','.join('?' for _ in relations)})"
+            params.extend(relations)
+        sql += " ORDER BY created_at, source_id, relation, target_id"
+        with self.connect() as connection:
+            rows = connection.execute(sql, params).fetchall()
+        result = []
+        for row in rows:
+            item = dict(row)
+            item["metadata"] = json.loads(item.pop("metadata_json"))
+            item["direction"] = "outgoing" if item["source_id"] == object_id else "incoming"
+            result.append(item)
+        return result
+
     def list_object_records(
         self,
         *,

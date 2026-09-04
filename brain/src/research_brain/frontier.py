@@ -9,6 +9,13 @@ from typing import Any
 THREAD_STATUSES = {"active", "paused", "completed", "archived"}
 QUESTION_STATUSES = {"open", "answered", "superseded", "closed"}
 HYPOTHESIS_STATUSES = {"active", "supported", "weakened", "rejected", "superseded"}
+QUESTION_RELATIONS = {
+    "MOTIVATED_BY",
+    "REFINES",
+    "SPLITS_INTO",
+    "ANSWERED_BY",
+    "SUPERSEDED_BY",
+}
 TENSION_STATUSES = {"unresolved", "resolved", "superseded"}
 USAGE_DISPOSITIONS = {
     "tried_and_failed",

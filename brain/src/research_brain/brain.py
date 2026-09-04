@@ -9,8 +9,9 @@ from typing import Any, Sequence
 from .context import ContextCompiler
 from .embeddings import EmbeddingIndexer, EmbeddingResult
 from .extraction import ExtractionResult, Extractor
-from .frontier import (HYPOTHESIS_STATUSES, QUESTION_STATUSES, TENSION_STATUSES, USAGE_DISPOSITIONS,
-                       enum, mapping, optional_text, strings, text, thread_payload, update_thread_payload)
+from .frontier import (HYPOTHESIS_STATUSES, QUESTION_RELATIONS, QUESTION_STATUSES,
+                       TENSION_STATUSES, USAGE_DISPOSITIONS, enum, mapping, optional_text,
+                       strings, text, thread_payload, update_thread_payload)
 from .ingest import Ingestor
 from .models import IngestResult, ResearchObject, ResearchPacketV1, RetrievalFiltersV1, SearchHitV2
 from .retrieval import Retriever
@@ -150,22 +151,67 @@ class Brain:
         status: str = "active",
         evidence_for: Sequence[str] = (),
         evidence_against: Sequence[str] = (),
+        critical_unknowns: Sequence[str] = (),
+        what_would_strengthen: Sequence[str] = (),
+        what_would_weaken: Sequence[str] = (),
+        killer_test: str | None = None,
         origin: str = "USER_STATED",
         review_state: str = "ACCEPTED",
     ) -> ResearchObject:
         self._require_object(thread_id, kind="research_thread")
         payload = {
-            "schema": "HypothesisV1",
+            "schema": "HypothesisV2",
             "statement": text(statement, "statement"),
             "thread_id": thread_id,
             "status": enum(status, "hypothesis status", HYPOTHESIS_STATUSES),
             "evidence_for": self._validate_refs(evidence_for, "evidence_for"),
             "evidence_against": self._validate_refs(evidence_against, "evidence_against"),
+            "critical_unknowns": strings(critical_unknowns, "critical_unknowns"),
+            "what_would_strengthen": strings(what_would_strengthen, "what_would_strengthen"),
+            "what_would_weaken": strings(what_would_weaken, "what_would_weaken"),
+            "killer_test": optional_text(killer_test, "killer_test"),
         }
         return self.create_research_object(
             kind="hypothesis", title=statement[:120], body=payload["statement"], structured=payload,
             origin=origin, review_state=review_state,
         )
+
+    def link_question(
+        self,
+        source_question_id: str,
+        relation: str,
+        target_object_id: str,
+        *,
+        metadata: dict[str, Any] | None = None,
+        origin: str = "USER_STATED",
+        review_state: str = "ACCEPTED",
+        confidence: float | None = None,
+        actor: str = "user",
+    ) -> dict[str, Any]:
+        source = self._require_object(source_question_id, kind="research_question")
+        target = self._require_object(target_object_id)
+        if source.id == target.id:
+            raise ValueError("A research question cannot link to itself")
+        relation = enum(relation, "question relation", QUESTION_RELATIONS)
+        if relation in {"REFINES", "SPLITS_INTO", "SUPERSEDED_BY"} and target.kind != "research_question":
+            raise ValueError(f"{relation} target must be a research_question")
+        return self.store.create_link(
+            source_id=source.id,
+            relation=relation,
+            target_id=target.id,
+            metadata=mapping(metadata, "metadata"),
+            origin=origin,
+            review_state=review_state,
+            confidence=confidence,
+            actor=actor,
+        )
+
+    def get_question_genealogy(self, question_id: str) -> dict[str, Any]:
+        question = self._require_object(question_id, kind="research_question")
+        return {
+            "question": self.get_research_object(question.id),
+            "links": self.store.get_links(question.id, direction="both"),
+        }
 
     def record_observation(
         self,
