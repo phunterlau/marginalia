@@ -96,3 +96,56 @@ class EmbeddingIndexer:
             self.store.finish_generation(run_id, status="failed",
                                          error={"type": type(exc).__name__, "message": str(exc)})
             raise
+
+    def query_vector(self, query: str, *, live: bool = False) -> list[float] | None:
+        model = os.getenv("RESEARCH_EMBED_MODEL", "text-embedding-3-small")
+        version = "semantic-query-v1"
+        digest = hashlib.sha256(query.encode()).hexdigest()
+        object_id = stable_id("query", digest)
+        cached = self.store.cached_embedding(
+            object_type="query", object_id=object_id, representation_type="semantic_query",
+            model=model, version=version,
+        )
+        if cached is not None:
+            return cached
+        if not live or not self.store.has_semantic_vectors(model=model):
+            return None
+        if not os.getenv("OPENAI_API_KEY") and self.provider_factory is None:
+            raise RuntimeError("OPENAI_API_KEY is required for --semantic-live retrieval")
+        run_id = stable_id("gen", "query_embedding", model, version, digest, utc_now())
+        self.store.begin_generation(
+            run_id=run_id, task="query_embedding", provider="openai", model=model,
+            reasoning_effort=None, prompt_version=version, schema_version="float32-vector-v1",
+            input_digest=digest, block_ids=(), request={"store": False, "input_count": 1}, force=True,
+        )
+        started = utc_now()
+        attempt_recorded = False
+        try:
+            provider = self.provider_factory(model=model) if self.provider_factory else None
+            if provider is None:
+                from .openai_provider import OpenAIEmbeddingProvider
+                provider = OpenAIEmbeddingProvider(model=model)
+            vectors = provider.embed([query])
+            if len(vectors) != 1 or not vectors[0]:
+                raise ValueError("embedding provider returned the wrong number of query vectors")
+            vector = vectors[0]
+            self.store.record_attempt(run_id=run_id, number=1, started_at=started, outcome="success")
+            attempt_recorded = True
+            self.store.save_embeddings([{
+                "object_type": "query", "object_id": object_id,
+                "representation_type": "semantic_query", "text": query,
+                "vector": vector, "input_digest": digest,
+            }], model=model, version=version)
+            self.store.finish_generation(run_id, status="complete", output={"representation_count": 1})
+            return vector
+        except Exception as exc:
+            if not attempt_recorded:
+                self.store.record_attempt(
+                    run_id=run_id, number=1, started_at=started, outcome="fatal_error",
+                    status_code=getattr(exc, "status_code", None),
+                    error={"type": type(exc).__name__, "message": str(exc)},
+                )
+            self.store.finish_generation(
+                run_id, status="failed", error={"type": type(exc).__name__, "message": str(exc)},
+            )
+            raise

@@ -96,7 +96,6 @@ class ContextCompiler:
         limit: int = 8,
         blind_first: str | None = None,
         query_vector: Sequence[float] | None = None,
-        embedding_provider: Any | None = None,
     ) -> ResearchPacketV1:
         question = text(question, "question", maximum=2_000)
         if mode not in CONTEXT_MODES:
@@ -123,7 +122,6 @@ class ContextCompiler:
             limit=20,
             reliable=True,
             query_vector=query_vector,
-            embedding_provider=embedding_provider,
         )
         cards = [_hit_item(hit, "reviewed method or mathematics matching the question") for hit in memory_hits]
         frontier_items = [

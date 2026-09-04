@@ -49,14 +49,14 @@ def build_parser() -> argparse.ArgumentParser:
     search.add_argument("--kind", action="append", dest="kinds")
     search.add_argument("--limit", type=int, default=10)
     search.add_argument("--filters", default="{}", help="RetrievalFiltersV1 JSON object")
-    search.add_argument("--semantic-live", action="store_true", help="Spend one embedding query call")
+    search.add_argument("--semantic-live", action="store_true", help="Allow one embedding query call on cache miss")
 
     recall = commands.add_parser("recall", help="Reliable recall: source evidence and accepted cards")
     recall.add_argument("query")
     recall.add_argument("--kind", action="append", dest="kinds")
     recall.add_argument("--limit", type=int, default=10)
     recall.add_argument("--filters", default="{}")
-    recall.add_argument("--semantic-live", action="store_true", help="Spend one embedding query call")
+    recall.add_argument("--semantic-live", action="store_true", help="Allow one embedding query call on cache miss")
 
     evidence = commands.add_parser("evidence", help="Show a block with complete source locator")
     evidence.add_argument("block_id")

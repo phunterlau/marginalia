@@ -97,6 +97,11 @@ Run the retrieval benchmark with:
 research --root data evaluate evals/retrieval-v1.json --semantic-live
 ```
 
+`--semantic-live` creates a ledgered query embedding only on the first exact
+query. Later identical queries reuse the local float32 representation, including
+offline calls without `--semantic-live`; corpus embeddings and lexical recall
+remain available independently.
+
 ## Hot Frontier
 
 Frontier objects use the existing generic research-object ledger; no separate

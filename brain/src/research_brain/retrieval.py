@@ -11,10 +11,12 @@ from .models import RetrievalFiltersV1, SearchHitV2
 from .store.sqlite import SQLiteStore
 
 
-def _cosine(left: Sequence[float], right: Sequence[float]) -> float:
+def _cosine(left: Sequence[float], right: Sequence[float], left_norm: float | None = None) -> float:
     if len(left) != len(right):
         return -1.0
-    norm = math.sqrt(sum(value * value for value in left)) * math.sqrt(sum(value * value for value in right))
+    norm = (left_norm or math.sqrt(sum(value * value for value in left))) * math.sqrt(
+        sum(value * value for value in right)
+    )
     return sum(a * b for a, b in zip(left, right, strict=True)) / norm if norm else -1.0
 
 
@@ -24,8 +26,7 @@ class Retriever:
 
     def retrieve(self, query: str, *, kinds: Sequence[str] | None = None,
                  filters: RetrievalFiltersV1 | None = None, limit: int = 10,
-                 reliable: bool = False, query_vector: Sequence[float] | None = None,
-                 embedding_provider: Any | None = None) -> list[SearchHitV2]:
+                 reliable: bool = False, query_vector: Sequence[float] | None = None) -> list[SearchHitV2]:
         filters = filters or RetrievalFiltersV1()
         lexical = self._lexical(query, kinds=kinds, candidate_limit=50)
         model = os.getenv("RESEARCH_EMBED_MODEL", "text-embedding-3-small")
@@ -33,12 +34,14 @@ class Retriever:
         if kinds:
             allowed_objects = self.store.object_ids_for_kinds(kinds)
             vectors = [item for item in vectors if item[0] == "research_object" and item[1] in allowed_objects]
-        if query_vector is None and vectors and embedding_provider is not None:
-            query_vector = embedding_provider.embed([query])[0]
         semantic: list[tuple[str, str]] = []
         if query_vector is not None:
             compatible = [item for item in vectors if len(item[2]) == len(query_vector)]
-            ranked = sorted(compatible, key=lambda item: (-_cosine(query_vector, item[2]), item[1]))[:50]
+            query_norm = math.sqrt(sum(value * value for value in query_vector))
+            ranked = sorted(
+                compatible,
+                key=lambda item: (-_cosine(query_vector, item[2], query_norm), item[1]),
+            )[:50]
             semantic = [(item[0], item[1]) for item in ranked]
         scores: dict[tuple[str, str], float] = {}
         ranks: dict[tuple[str, str], list[int | None]] = {}

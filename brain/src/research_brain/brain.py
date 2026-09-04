@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from pathlib import Path
-import os
 from typing import Any, Sequence
 
 from .context import ContextCompiler
@@ -30,7 +29,6 @@ class Brain:
         self.embedding_indexer = EmbeddingIndexer(self.store, embedding_provider_factory)
         self.retriever = Retriever(self.store)
         self.context_compiler = ContextCompiler(self.store, self.retriever)
-        self.embedding_provider_factory = embedding_provider_factory
 
     def ingest(self, source: str | Path) -> IngestResult:
         return self.ingestor.ingest(source)
@@ -461,30 +459,19 @@ class Brain:
                 raise ValueError(f"{label} reference must be a block_ or obj_ id: {ref}")
         return result
 
-    def _embedding_provider(self, semantic_live: bool) -> Any | None:
-        if not semantic_live:
-            return None
-        model = os.getenv("RESEARCH_EMBED_MODEL", "text-embedding-3-small")
-        if self.embedding_provider_factory:
-            return self.embedding_provider_factory(model=model)
-        if not os.getenv("OPENAI_API_KEY"):
-            raise RuntimeError("OPENAI_API_KEY is required for semantic-live retrieval")
-        from .openai_provider import OpenAIEmbeddingProvider
-        return OpenAIEmbeddingProvider(model=model)
-
     def search(self, query: str, *, kinds: Sequence[str] | None = None,
                filters: RetrievalFiltersV1 | None = None, limit: int = 10,
                semantic_live: bool = False, query_vector: Sequence[float] | None = None) -> list[SearchHitV2]:
+        resolved_vector = query_vector or self.embedding_indexer.query_vector(query, live=semantic_live)
         return self.retriever.retrieve(query, kinds=kinds, filters=filters, limit=limit,
-                                       reliable=False, query_vector=query_vector,
-                                       embedding_provider=self._embedding_provider(semantic_live))
+                                       reliable=False, query_vector=resolved_vector)
 
     def recall(self, question: str, *, kinds: Sequence[str] | None = None,
                filters: RetrievalFiltersV1 | None = None, limit: int = 10,
                semantic_live: bool = False, query_vector: Sequence[float] | None = None) -> list[SearchHitV2]:
+        resolved_vector = query_vector or self.embedding_indexer.query_vector(question, live=semantic_live)
         return self.retriever.retrieve(question, kinds=kinds, filters=filters, limit=limit,
-                                       reliable=True, query_vector=query_vector,
-                                       embedding_provider=self._embedding_provider(semantic_live))
+                                       reliable=True, query_vector=resolved_vector)
 
     def find_methods(self, problem_signature: str, *, filters: RetrievalFiltersV1 | None = None,
                      limit: int = 10, semantic_live: bool = False,
@@ -504,10 +491,10 @@ class Brain:
         semantic_live: bool = False,
         query_vector: Sequence[float] | None = None,
     ) -> ResearchPacketV1:
+        resolved_vector = query_vector or self.embedding_indexer.query_vector(question, live=semantic_live)
         return self.context_compiler.compile(
             question, thread_id=thread_id, mode=mode, filters=filters, limit=limit,
-            blind_first=blind_first, query_vector=query_vector,
-            embedding_provider=self._embedding_provider(semantic_live),
+            blind_first=blind_first, query_vector=resolved_vector,
         )
 
     def get_history(self, object_id: str) -> list[dict[str, Any]]:

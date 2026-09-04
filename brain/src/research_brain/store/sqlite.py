@@ -426,6 +426,36 @@ class SQLiteStore:
                 count += cursor.rowcount
         return count
 
+    def cached_embedding(
+        self,
+        *,
+        object_type: str,
+        object_id: str,
+        representation_type: str,
+        model: str,
+        version: str,
+    ) -> list[float] | None:
+        with self.connect() as connection:
+            row = connection.execute(
+                """SELECT vector_blob, dimension FROM representations
+                   WHERE object_type=? AND object_id=? AND representation_type=?
+                     AND model_or_parser=? AND version=? AND vector_blob IS NOT NULL
+                   ORDER BY created_at DESC LIMIT 1""",
+                (object_type, object_id, representation_type, model, version),
+            ).fetchone()
+        if row is None:
+            return None
+        return list(struct.unpack(f"<{row['dimension']}f", row["vector_blob"]))
+
+    def has_semantic_vectors(self, *, model: str) -> bool:
+        with self.connect() as connection:
+            return connection.execute(
+                """SELECT 1 FROM representations
+                   WHERE representation_type='semantic' AND model_or_parser=?
+                     AND vector_blob IS NOT NULL LIMIT 1""",
+                (model,),
+            ).fetchone() is not None
+
     def semantic_vectors(self, *, model: str) -> list[tuple[str, str, list[float]]]:
         with self.connect() as connection:
             rows = connection.execute(

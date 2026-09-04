@@ -63,10 +63,13 @@ class FakeExtractionProvider:
 
 
 class FakeEmbeddingProvider:
+    calls = 0
+
     def __init__(self, **_: object):
         pass
 
     def embed(self, texts: list[str]) -> list[list[float]]:
+        type(self).calls += 1
         return [[1.0, 0.0] if "paired" in text.lower() or "perturbation" in text.lower() else [0.0, 1.0]
                 for text in texts]
 
@@ -84,6 +87,7 @@ class MilestoneTests(unittest.TestCase):
         self.paper.write_text(PAPER, encoding="utf-8")
         self.brain = Brain(self.root / "brain", extraction_provider_factory=FakeExtractionProvider,
                            embedding_provider_factory=FakeEmbeddingProvider)
+        FakeEmbeddingProvider.calls = 0
 
     def tearDown(self) -> None:
         self.temporary.cleanup()
@@ -275,6 +279,28 @@ class MilestoneTests(unittest.TestCase):
             filters=RetrievalFiltersV1(gradients_required=True),
         )
         self.assertEqual(blocked, [])
+
+    def test_query_embeddings_are_ledgered_cached_and_reusable_offline(self) -> None:
+        self.brain.ingest(self.paper)
+        self.brain.index_embeddings("all", live=True)
+        index_calls = FakeEmbeddingProvider.calls
+        first = self.brain.search("mechanism-level paraphrase", semantic_live=True)
+        self.assertTrue(first)
+        self.assertEqual(FakeEmbeddingProvider.calls, index_calls + 1)
+        second = self.brain.search("mechanism-level paraphrase", semantic_live=True)
+        offline = self.brain.search("mechanism-level paraphrase")
+        self.assertEqual(FakeEmbeddingProvider.calls, index_calls + 1)
+        self.assertEqual([hit.record_id for hit in first], [hit.record_id for hit in second])
+        self.assertEqual([hit.record_id for hit in first], [hit.record_id for hit in offline])
+        with self.brain.store.connect() as connection:
+            run = connection.execute(
+                "SELECT status FROM generation_runs WHERE task='query_embedding'"
+            ).fetchone()
+            self.assertEqual(run[0], "complete")
+            self.assertEqual(connection.execute(
+                "SELECT count(*) FROM generation_attempts WHERE run_id IN "
+                "(SELECT id FROM generation_runs WHERE task='query_embedding')"
+            ).fetchone()[0], 1)
 
     def test_retrieval_evaluation_thresholds_fail_closed(self) -> None:
         ingested = self.brain.ingest(self.paper)
