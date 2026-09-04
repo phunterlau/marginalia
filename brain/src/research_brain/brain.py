@@ -45,6 +45,55 @@ class Brain:
     def get_research_object(self, object_id: str) -> dict[str, Any] | None:
         return self.store.get_object_record(object_id)
 
+    def list_research_objects(
+        self,
+        *,
+        kinds: Sequence[str] | None = None,
+        origins: Sequence[str] | None = None,
+        review_states: Sequence[str] | None = None,
+        document_id: str | None = None,
+        latest_extraction_only: bool = False,
+        limit: int = 50,
+    ) -> list[dict[str, Any]]:
+        if not 1 <= limit <= 100:
+            raise ValueError("object list limit must be between 1 and 100")
+        if document_id is not None and self.get_document(document_id) is None:
+            raise LookupError(f"Document not found: {document_id}")
+        records = self.store.list_object_records(
+            kinds=strings(kinds, "kinds") if kinds else None,
+            origins=strings(origins, "origins") if origins else None,
+            review_states=strings(review_states, "review_states") if review_states else None,
+            document_id=document_id,
+            limit=None if latest_extraction_only else limit,
+        )
+        if latest_extraction_only:
+            run_ids = sorted({record["extraction_run_id"] for record in records
+                              if record.get("extraction_run_id")})
+            runs = self.store.get_generation_runs(run_ids)
+            latest: dict[tuple[str, tuple[str, ...]], tuple[str, str]] = {}
+            for record in records:
+                run = runs.get(record.get("extraction_run_id"))
+                if run is None:
+                    continue
+                documents = tuple(sorted({item["document_id"] for item in record["evidence"]
+                                          if item.get("document_id")}))
+                key = (run["task"], documents)
+                timestamp = run.get("completed_at") or run["created_at"]
+                candidate = (timestamp, run["id"])
+                if key not in latest or candidate > latest[key]:
+                    latest[key] = candidate
+            records = [
+                record for record in records
+                if not record.get("extraction_run_id")
+                or runs.get(record["extraction_run_id"]) is None
+                or record["extraction_run_id"] == latest[
+                    (runs[record["extraction_run_id"]]["task"],
+                     tuple(sorted({item["document_id"] for item in record["evidence"]
+                                   if item.get("document_id")})))
+                ][1]
+            ][:limit]
+        return records
+
     def review_research_object(self, object_id: str, *, review_state: str,
                                note: str | None = None, actor: str = "user") -> ResearchObject:
         return self.store.review_object(object_id, review_state=review_state, note=note, actor=actor)

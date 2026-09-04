@@ -178,6 +178,13 @@ def build_parser() -> argparse.ArgumentParser:
     object_add.add_argument("--origin", default="USER_STATED")
     object_add.add_argument("--review-state", default="ACCEPTED")
     object_add.add_argument("--confidence", type=float)
+    object_list = object_commands.add_parser("list")
+    object_list.add_argument("--kind", action="append", dest="kinds")
+    object_list.add_argument("--origin", action="append", dest="origins")
+    object_list.add_argument("--review-state", action="append", dest="review_states")
+    object_list.add_argument("--document")
+    object_list.add_argument("--latest-extraction-only", action="store_true")
+    object_list.add_argument("--limit", type=int, default=50)
     object_show = object_commands.add_parser("show")
     object_show.add_argument("object_id")
     object_evidence = object_commands.add_parser("evidence")
@@ -352,6 +359,15 @@ def run(args: argparse.Namespace) -> Any:
             kind=args.kind, body=args.body, title=args.title,
             structured=_json_object(args.structured, label="structured"), origin=args.origin,
             review_state=args.review_state, confidence=args.confidence,
+        )
+    if args.command == "object" and args.object_command == "list":
+        return brain.list_research_objects(
+            kinds=args.kinds,
+            origins=args.origins,
+            review_states=args.review_states,
+            document_id=args.document,
+            latest_extraction_only=args.latest_extraction_only,
+            limit=args.limit,
         )
     if args.command == "object" and args.object_command in {"show", "evidence"}:
         result = brain.get_research_object(args.object_id)

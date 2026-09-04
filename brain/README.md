@@ -72,6 +72,15 @@ cards.
 research --root data object evidence <object-id>
 research --root data object review <object-id> --accept --note 'Checked against TeX'
 
+# Evidence-complete manual review queue; this does not change review state.
+research --root data object list \
+  --kind method_card \
+  --origin AGENT_EXTRACTED \
+  --review-state UNREVIEWED \
+  --document <document-id> \
+  --latest-extraction-only \
+  --limit 50
+
 # Exploratory: includes unreviewed cards with labels.
 research --root data search 'contrastive direction'
 
@@ -82,6 +91,10 @@ research --root data recall 'perturbation direction' --kind method_card
 research --root data recall 'behavioral centroid translation' \
   --kind method_card --semantic-live
 ```
+
+Only an explicit `object review` command changes review state; listing never
+promotes cards. `--latest-extraction-only` hides older prompt/schema cohorts
+from the view while preserving their immutable ledger records.
 
 Structured filters are JSON matching `RetrievalFiltersV1`, for example:
 

@@ -606,18 +606,52 @@ class SQLiteStore:
             result.append(item)
         return result
 
+    def get_generation_runs(self, run_ids: Sequence[str]) -> dict[str, dict[str, Any]]:
+        if not run_ids:
+            return {}
+        with self.connect() as connection:
+            rows = connection.execute(
+                f"""SELECT id, task, prompt_version, schema_version, status, created_at, completed_at
+                    FROM generation_runs WHERE id IN ({','.join('?' for _ in run_ids)})""",
+                tuple(run_ids),
+            ).fetchall()
+        return {row["id"]: dict(row) for row in rows}
+
     def list_object_records(
         self,
         *,
         kinds: Sequence[str] | None = None,
         thread_id: str | None = None,
+        origins: Sequence[str] | None = None,
+        review_states: Sequence[str] | None = None,
+        document_id: str | None = None,
+        limit: int | None = None,
     ) -> list[dict[str, Any]]:
-        sql = "SELECT id, structured_json FROM research_objects"
+        sql = "SELECT ro.id, ro.structured_json FROM research_objects ro"
         params: list[Any] = []
+        clauses: list[str] = []
         if kinds:
-            sql += f" WHERE kind IN ({','.join('?' for _ in kinds)})"
+            clauses.append(f"ro.kind IN ({','.join('?' for _ in kinds)})")
             params.extend(kinds)
-        sql += " ORDER BY created_at DESC, id"
+        if origins:
+            clauses.append(f"ro.origin IN ({','.join('?' for _ in origins)})")
+            params.extend(origins)
+        if review_states:
+            clauses.append(f"ro.review_state IN ({','.join('?' for _ in review_states)})")
+            params.extend(review_states)
+        if document_id:
+            clauses.append(
+                """EXISTS (
+                    SELECT 1 FROM evidence_links e
+                    JOIN document_blocks b ON b.id=e.block_id
+                    JOIN document_versions v ON v.id=b.document_version_id
+                    WHERE e.object_id=ro.id AND v.document_id=?
+                )"""
+            )
+            params.append(document_id)
+        if clauses:
+            sql += " WHERE " + " AND ".join(clauses)
+        sql += " ORDER BY ro.created_at DESC, ro.id"
         with self.connect() as connection:
             rows = connection.execute(sql, params).fetchall()
         result: list[dict[str, Any]] = []
@@ -628,6 +662,8 @@ class SQLiteStore:
             record = self.get_object_record(row["id"])
             if record is not None:
                 result.append(record)
+                if limit is not None and len(result) >= limit:
+                    break
         return result
 
     def update_object_structured(

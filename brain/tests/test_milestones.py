@@ -216,6 +216,31 @@ class MilestoneTests(unittest.TestCase):
         equation = next(item for item in record["evidence"] if item["relation"] == "defines")
         self.assertEqual(record["structured"]["exact_latex"], equation["raw_latex"])
 
+    def test_object_review_queue_filters_by_kind_state_origin_and_document(self) -> None:
+        ingested = self.brain.ingest(self.paper)
+        extracted = self.brain.extract("methods", ingested.document_id, live=True)
+        self.brain.create_research_object(
+            kind="method_card", title="User method", body="Not an extracted review candidate",
+            structured={"schema": "MethodCardV1"}, origin="USER_STATED", review_state="ACCEPTED",
+        )
+        queue = self.brain.list_research_objects(
+            kinds=["method_card"], origins=["AGENT_EXTRACTED"],
+            review_states=["UNREVIEWED"], document_id=ingested.document_id,
+        )
+        self.assertEqual([item["id"] for item in queue], list(extracted.object_ids))
+        self.assertTrue(queue[0]["evidence"])
+        with self.assertRaisesRegex(ValueError, "between 1 and 100"):
+            self.brain.list_research_objects(limit=101)
+
+        from research_brain.cli import build_parser, run
+        listed = run(build_parser().parse_args([
+            "--root", str(self.brain.root), "object", "list",
+            "--kind", "method_card", "--origin", "AGENT_EXTRACTED",
+            "--review-state", "UNREVIEWED", "--document", ingested.document_id,
+            "--limit", "10",
+        ]))
+        self.assertEqual([item["id"] for item in listed], list(extracted.object_ids))
+
     def test_failed_generation_writes_attempt_but_no_cards(self) -> None:
         brain = Brain(self.root / "failed", extraction_provider_factory=FailingExtractionProvider)
         ingested = brain.ingest(self.paper)
@@ -259,6 +284,11 @@ class MilestoneTests(unittest.TestCase):
                 )
             }
         self.assertEqual(versions, {"evidence-cards-v2", "evidence-cards-next"})
+        latest = self.brain.list_research_objects(
+            kinds=["method_card"], review_states=["UNREVIEWED"],
+            document_id=ingested.document_id, latest_extraction_only=True,
+        )
+        self.assertEqual([item["extraction_run_id"] for item in latest], [second.run_id])
 
     def test_embeddings_hybrid_semantic_recall_and_filters(self) -> None:
         ingested = self.brain.ingest(self.paper)
