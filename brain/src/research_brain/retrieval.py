@@ -71,7 +71,16 @@ class Retriever:
             ranked.extend((row["rank"], "research_object", row["object_id"]) for row in connection.execute(sql, params))
             if not kinds:
                 ranked.extend((row["rank"], "document_block", row["block_id"]) for row in connection.execute(
-                    "SELECT block_id, bm25(block_fts) rank FROM block_fts WHERE block_fts MATCH ? ORDER BY rank LIMIT ?",
+                    """SELECT f.block_id, bm25(block_fts) rank
+                       FROM block_fts f
+                       JOIN document_blocks b ON b.id=f.block_id
+                       JOIN document_versions v ON v.id=b.document_version_id
+                       WHERE block_fts MATCH ? AND b.compilation_id = (
+                           SELECT c.id FROM document_compilations c
+                           WHERE c.document_version_id=v.id AND c.status='complete'
+                           ORDER BY c.created_at DESC, c.id DESC LIMIT 1
+                       )
+                       ORDER BY rank LIMIT ?""",
                     (fts, candidate_limit)))
         return [(kind, identifier) for _, kind, identifier in sorted(ranked, key=lambda item: (item[0], item[2]))[:candidate_limit]]
 

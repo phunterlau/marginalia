@@ -591,9 +591,17 @@ class SQLiteStore:
 
             if not kinds:
                 for row in connection.execute(
-                    """SELECT block_id, document_version_id, block_type, section_path, body,
+                    """SELECT f.block_id, f.document_version_id, f.block_type, f.section_path, f.body,
                               bm25(block_fts, 0, 0, 0, 2, 1) AS rank
-                       FROM block_fts WHERE block_fts MATCH ? ORDER BY rank LIMIT ?""",
+                       FROM block_fts f
+                       JOIN document_blocks b ON b.id=f.block_id
+                       JOIN document_versions v ON v.id=b.document_version_id
+                       WHERE block_fts MATCH ? AND b.compilation_id = (
+                           SELECT c.id FROM document_compilations c
+                           WHERE c.document_version_id=v.id AND c.status='complete'
+                           ORDER BY c.created_at DESC, c.id DESC LIMIT 1
+                       )
+                       ORDER BY rank LIMIT ?""",
                     (fts_query, limit),
                 ):
                     hits.append(SearchHit("document_block", row["block_id"], row["section_path"] or None,

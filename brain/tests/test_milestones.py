@@ -104,6 +104,18 @@ class MilestoneTests(unittest.TestCase):
         self.assertEqual(source[evidence["char_start"]:evidence["char_end"]].strip(), evidence["raw_text"])
         self.assertEqual(len(evidence["raw_sha256"]), 64)
 
+    def test_lexical_search_excludes_superseded_compilations(self) -> None:
+        first = self.brain.ingest(self.paper)
+        with patch("research_brain.ingest.PARSER_VERSION", "structural-test-upgrade"):
+            second = self.brain.ingest(self.paper)
+        self.assertNotEqual(first.compilation_id, second.compilation_id)
+        hits = [item for item in self.brain.search("paired contrast", limit=20)
+                if item.record_type == "document_block"]
+        assert hits
+        assert {
+            self.brain.get_evidence(hit.record_id)["compilation_id"] for hit in hits
+        } == {second.compilation_id}
+
     def test_ingest_transaction_rolls_back_database_rows(self) -> None:
         with patch.object(self.brain.store, "_append_event", side_effect=RuntimeError("injected")):
             with self.assertRaises(RuntimeError):
