@@ -1,5 +1,47 @@
 # Research Brain
 
+## Local memory reviewer
+
+The optional reviewer presents Method/Math cards beside their exact source evidence.
+It runs locally, makes no model calls, and exposes only read operations plus audited
+accept/dispute/reject decisions. Acceptance means source-faithful extraction and
+makes a card eligible for reliable recall; it does not certify scientific truth.
+
+From this `brain` directory:
+
+```bash
+uv sync --extra reviewer --extra dev
+cd reviewer-ui
+npm ci
+npm run build
+cd ..
+uv run research --root /absolute/path/to/existing/data review-ui --port 8765
+```
+
+Open `http://127.0.0.1:8765`. An existing compatible database is required; this command
+does not initialize or migrate it. The server binds only to loopback. Disputes and
+rejections require notes; stale submissions must be reloaded before retrying.
+Skip does not write a review. Notes survive card navigation within the page.
+
+Frontend build output is ignored by Git and bundled into Python packages when built
+before packaging. No Node runtime is required to serve a built reviewer. Full-source
+data and generated review artifacts must remain local.
+
+Verification (browser tests mock all API responses and never accept real cards):
+
+```bash
+uv run pytest -q
+# With the built reviewer running and Google Chrome installed:
+cd reviewer-ui
+npm test
+cd ..
+uv run python scripts/verify_reviewer_corpus.py --root /absolute/path/to/isolated/corpus-copy
+```
+
+The real-corpus check verifies evidence fidelity and unchanged database bytes. Human
+review is a separate step; neither test suite marks real cards accepted. Canvas,
+card editing, bulk review, and remote access are intentionally absent.
+
 Research Brain is an evidence-first, headless research memory for Pi and other
 agent clients. Original sources and exact locators remain canonical; extraction,
 embeddings, and generated connections are derived and explicitly labeled.

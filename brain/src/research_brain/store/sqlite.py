@@ -621,7 +621,7 @@ class SQLiteStore:
             return {}
         with self.connect() as connection:
             rows = connection.execute(
-                f"""SELECT id, task, prompt_version, schema_version, status, created_at, completed_at
+                f"""SELECT id, task, model, provider, prompt_version, schema_version, status, created_at, completed_at
                     FROM generation_runs WHERE id IN ({','.join('?' for _ in run_ids)})""",
                 tuple(run_ids),
             ).fetchall()

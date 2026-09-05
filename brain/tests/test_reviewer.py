@@ -39,6 +39,7 @@ def test_read_only_and_context(setup):
     assert evidence['compilation_id']
     assert len(evidence['context']) <= 4
     assert 'source_path' not in evidence
+    assert card['generation']['model'] is not None
     assert digest() == before
     assert client.get('/api/cards/missing').status_code == 404
     assert client.get('/api/evidence/missing').status_code == 404
@@ -118,3 +119,13 @@ def test_no_initialization_or_migration(tmp_path):
         conn.execute('DELETE FROM schema_migrations WHERE version=2')
     with pytest.raises(ValueError,match='Incompatible'):
         create_app(brain.root)
+
+
+def test_pdf_locator_is_preserved(setup):
+    brain, _, run, client, _ = setup
+    block = brain.get_research_object(run.object_ids[0])['evidence'][0]['block_id']
+    with brain.store.connect() as connection:
+        connection.execute('UPDATE document_blocks SET page=3,source_member=NULL WHERE id=?',(block,))
+    evidence = client.get('/api/evidence/'+block).json()
+    assert evidence['page'] == 3
+    assert evidence['source_member'] is None

@@ -1,0 +1,19 @@
+{
+  "name": "research-memory-reviewer",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "build": "tsc --noEmit && vite build",
+    "test": "playwright test"
+  },
+  "dependencies": {
+    "katex": "^0.16.22"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.63.0",
+    "@types/katex": "^0.16.7",
+    "typescript": "^5.9.3",
+    "vite": "^7.1.0"
+  }
+}
