@@ -46,6 +46,33 @@ Research Brain is an evidence-first, headless research memory for Pi and other
 agent clients. Original sources and exact locators remain canonical; extraction,
 embeddings, and generated connections are derived and explicitly labeled.
 
+## ResearchPacket acceptance checks
+
+Run the eight frontier contracts offline on an isolated synthetic research history:
+
+```bash
+research evaluate-frontier evals/frontier-v1.json --fixture
+research evaluate-frontier evals/frontier-v1.json --fixture --output /tmp/frontier-report.json
+```
+
+`--fixture` never creates or changes the selected `--root`. To check an existing
+research thread instead, use `research --root /path/to/data evaluate-frontier
+evals/frontier-v1.json --thread obj_ID`. This requires a compatible database and
+makes no provider calls. Report files are created exclusively, never overwritten.
+A failed contract exits with status 1; invalid inputs exit with status 2.
+
+Reports include complete packets, failed assertions, source/spec digests, elapsed
+time, and equal-count lexical raw-top-k IDs. This is structural coverage, **not** a
+judged answer-quality or brainstorming-usefulness score. Synthetic observations
+and acceptance states are test fixtures, not actual research findings.
+
+Frontier packets rank thread records by deterministic lexical overlap rather than
+recency alone. Observation packets can include explicitly referenced experiment
+results as separate records; critique packets include hypotheses alongside
+counterevidence. Question items expose `question_links` (up to eight stored,
+directional, epistemically labeled links) and `question_links_omitted`. These are
+read-only packet projections; no graph edges or review states are changed.
+
 ## What works
 
 - immutable source assets and source revisions;

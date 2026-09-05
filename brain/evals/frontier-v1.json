@@ -3,48 +3,56 @@
   "cases": [
     {
       "name": "frontier-aware-recall",
+      "mode": "analysis",
       "question": "What is currently unresolved about principled perturbation directions?",
       "must_include_kinds": ["research_thread", "research_question", "tension"],
       "must_include_fields": ["constraints", "unknown"]
     },
     {
       "name": "observation-without-interpretation",
+      "mode": "analysis",
       "question": "What did experiment E42 actually observe, independent of our interpretation?",
       "must_include_kinds": ["observation", "experiment_result"],
       "must_label_separately": ["interpretation"]
     },
     {
       "name": "negative-history",
+      "mode": "recall",
       "question": "Have I already tried a variance-derived basis?",
       "must_include_kinds": ["usage_episode"],
       "must_include_fields": ["disposition", "reason", "what_would_reconsider"]
     },
     {
       "name": "critique-tension",
+      "mode": "critique",
       "question": "Why might the current covariance hypothesis be wrong?",
       "must_include_kinds": ["tension", "observation", "hypothesis"],
       "must_prioritize": ["counterevidence", "possible_explanations", "failure_modes"]
     },
     {
       "name": "hypothesis-falsifiability",
+      "mode": "analysis",
       "question": "What would decisively weaken or kill the current hypothesis?",
       "must_include_kinds": ["hypothesis"],
       "must_include_fields": ["critical_unknowns", "what_would_weaken", "killer_test"]
     },
     {
       "name": "question-genealogy",
+      "mode": "analysis",
       "question": "How did the current research question arise and what did it refine?",
       "must_include_kinds": ["research_question"],
       "must_include_relations": ["MOTIVATED_BY", "REFINES", "SPLITS_INTO", "ANSWERED_BY", "SUPERSEDED_BY"]
     },
     {
       "name": "transfer-mismatch",
+      "mode": "analysis",
       "question": "Could this mathematical device transfer to my current question, and where does the analogy fail?",
       "must_include_kinds": ["transfer_hypothesis"],
       "must_include_fields": ["mapping", "why_promising", "mismatches", "proposed_test"]
     },
     {
       "name": "derived-frontier-snapshot",
+      "mode": "analysis",
       "question": "What is established, unresolved, and worth testing next?",
       "must_include_kinds": ["frontier_snapshot"],
       "must_include_fields": ["established", "unresolved", "important_tensions", "negative_evidence", "pending_discriminating_experiments"]

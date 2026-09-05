@@ -234,6 +234,12 @@ def build_parser() -> argparse.ArgumentParser:
     evaluate_parser = commands.add_parser("evaluate", help="Run a retrieval evaluation specification")
     evaluate_parser.add_argument("spec")
     evaluate_parser.add_argument("--semantic-live", action="store_true")
+    frontier_eval = commands.add_parser('evaluate-frontier', help='Offline ResearchPacket acceptance checks')
+    frontier_eval.add_argument('spec')
+    frontier_eval.add_argument('--output', help='Save a new JSON report; never overwrite an existing artifact')
+    target = frontier_eval.add_mutually_exclusive_group(required=True)
+    target.add_argument('--fixture', action='store_true', help='Use an isolated synthetic frontier; ignore --root')
+    target.add_argument('--thread', help='Evaluate an existing thread without provider calls')
 
     history = commands.add_parser("history", help="Show append-only history for an object or thread")
     history_target = history.add_mutually_exclusive_group(required=True)
@@ -243,6 +249,26 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def run(args: argparse.Namespace) -> Any:
+    if args.command == 'evaluate-frontier':
+        from .frontier_evaluation import evaluate_frontier, load_spec, seed_frontier_fixture
+        load_spec(args.spec)
+        def finish(report):
+            if args.output:
+                output = Path(args.output).expanduser()
+                output.parent.mkdir(parents=True, exist_ok=True)
+                with output.open('x', encoding='utf-8') as stream:
+                    stream.write(_json(report) + '\n')
+            return report
+        if args.fixture:
+            from tempfile import TemporaryDirectory
+            with TemporaryDirectory(prefix='research-frontier-eval-') as temporary:
+                fixture_brain = Brain(Path(temporary))
+                thread = seed_frontier_fixture(fixture_brain)
+                return finish(evaluate_frontier(fixture_brain, args.spec, thread_id=thread, fixture='synthetic-frontier-v1'))
+        # Fail before Brain can initialize or migrate a missing/incompatible database.
+        from .store import SQLiteStore
+        SQLiteStore(Path(args.root).expanduser().resolve() / 'brain.sqlite3', initialize=False)
+        return finish(evaluate_frontier(Brain(Path(args.root)), args.spec, thread_id=args.thread))
     if args.command == "review-ui":
         from .reviewer import serve
         return serve(Path(args.root), args.port)

@@ -3,8 +3,9 @@
 from __future__ import annotations
 
 from typing import Any, Sequence
+import re
 
-from .frontier import text
+from .frontier import text, QUESTION_RELATIONS
 from .models import ResearchPacketV1, RetrievalFiltersV1, SearchHitV2
 from .retrieval import Retriever
 from .store import SQLiteStore
@@ -20,6 +21,24 @@ NEGATIVE_DISPOSITIONS = {
     "insufficient_evidence", "too_expensive", "did_not_discriminate_hypotheses",
     "contradicted_by_experiment", "superseded",
 }
+
+STOP_WORDS = {'the','and','are','was','were','what','which','why','how','this','that','with',
+              'from','have','has','had','about','would','could','should','into','for','our','did',
+              'does','been','their','there','might','than','its','not','but','current'}
+
+
+def _terms(value: str) -> set[str]:
+    return {word for word in re.findall(r'[a-z0-9]+', value.lower())
+            if len(word) > 2 and word not in STOP_WORDS}
+
+
+def _rank_records(records: list[dict[str, Any]], question: str) -> list[dict[str, Any]]:
+    """Exact lexical overlap, with stable identities for ties; no model reranking."""
+    terms = _terms(question)
+    return sorted(records, key=lambda r: (
+        -len(terms & _terms(f"{r.get('title') or ''} {r['body']} {r['kind'].replace('_', ' ')}")),
+        r['id'],
+    ))
 
 
 def _short(value: Any, maximum: int = 1_200) -> Any:
@@ -114,6 +133,7 @@ class ContextCompiler:
             if frontier is None or frontier["kind"] != "research_thread":
                 raise LookupError(f"Research thread not found: {thread_id}")
             thread_records = self.store.list_object_records(thread_id=thread_id)
+            thread_records = _rank_records(thread_records, question)
 
         memory_hits = self.retriever.retrieve(
             question,
@@ -129,6 +149,30 @@ class ContextCompiler:
             for record in thread_records
             if record["kind"] in FRONTIER_KINDS
         ]
+        # Keep a question's sparse lineage in the packet; do not invent relations
+        # from co-occurrence or silently merge questions into a summary.
+        for item in frontier_items:
+            if item['kind'] == 'research_question':
+                links = self.store.get_links(item['record_id'], relations=sorted(QUESTION_RELATIONS))
+                item['question_links'] = [{key: link[key] for key in (
+                    'source_id','target_id','relation','direction','origin','review_state'
+                )} for link in links[:8]]
+                item['question_links_omitted'] = max(0, len(links) - 8)
+
+        # Explicit object evidence is not necessarily attached to the thread
+        # itself (e.g. an E42 experiment_result). Include it adjacent to its
+        # observation and keep the interpretation as a separately labeled object.
+        expanded = []
+        for item in frontier_items:
+            expanded.append(item)
+            if item['kind'] == 'observation':
+                for ref in item['structured'].get('evidence_refs', []):
+                    result = self.store.get_object_record(ref) if ref.startswith('obj_') else None
+                    if result and result['kind'] == 'experiment_result' and result['structured'].get('thread_id') in {None,thread_id}:
+                        expanded.append(_record_item(result, 'experiment result explicitly referenced by this observation'))
+                expanded.extend(other for other in frontier_items if other['kind'] == 'interpretation'
+                                and item['record_id'] in other['structured'].get('derived_from', []))
+        frontier_items = expanded
         snapshots = [record for record in thread_records if record["kind"] == "frontier_snapshot"]
         if snapshots:
             latest = max(snapshots, key=lambda record: record["structured"].get("snapshot_number", 0))
@@ -148,13 +192,15 @@ class ContextCompiler:
             if item["structured"].get("disposition") in NEGATIVE_DISPOSITIONS
         ]
         observations = [item for item in frontier_items if item["kind"] == "observation"]
+        hypotheses = [item for item in frontier_items if item['kind'] == 'hypothesis']
 
         if mode == "recall":
             priorities = [("historical_attempts", histories, 4), ("relevant_memory", cards, 4),
                           ("relevant_memory", frontier_items, 2)]
         elif mode == "critique":
             priorities = [("tensions", tensions, 3), ("counterevidence", negative_history, 3),
-                          ("counterevidence", observations, 2), ("relevant_memory", cards, 2)]
+                          ("counterevidence", observations, 2), ("relevant_memory", hypotheses, 2),
+                          ("relevant_memory", cards, 2)]
         elif mode == "decision":
             priorities = [("tensions", tensions, 3), ("historical_attempts", histories, 3),
                           ("relevant_memory", frontier_items, 3), ("relevant_memory", cards, 2)]
@@ -162,7 +208,7 @@ class ContextCompiler:
             priorities = [("historical_attempts", histories, 2), ("tensions", tensions, 2),
                           ("optional_distant_connections", cards, 6)]
         else:
-            priorities = [("relevant_memory", frontier_items, 4), ("relevant_memory", cards, 4),
+            priorities = [("relevant_memory", frontier_items, 6), ("relevant_memory", cards, 2),
                           ("tensions", tensions, 2), ("historical_attempts", histories, 2)]
 
         buckets: dict[str, list[dict[str, Any]]] = {
