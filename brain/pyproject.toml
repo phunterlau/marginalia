@@ -15,6 +15,7 @@ dependencies = ["pypdf>=5"]
 [project.optional-dependencies]
 openai = ["openai>=2"]
 dev = ["pytest>=8"]
+reviewer = ["fastapi>=0.115", "uvicorn>=0.30"]
 
 [project.scripts]
 research = "research_brain.cli:main"
@@ -27,7 +28,7 @@ include-package-data = true
 where = ["src"]
 
 [tool.setuptools.package-data]
-research_brain = ["store/migrations/*.sql"]
+research_brain = ["store/migrations/*.sql", "reviewer_static/**/*", "reviewer_static/*"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

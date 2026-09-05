@@ -62,7 +62,7 @@ class Brain:
         records = self.store.list_object_records(
             kinds=strings(kinds, "kinds") if kinds else None,
             origins=strings(origins, "origins") if origins else None,
-            review_states=strings(review_states, "review_states") if review_states else None,
+            review_states=strings(review_states, "review_states") if review_states and not latest_extraction_only else None,
             document_id=document_id,
             limit=None if latest_extraction_only else limit,
         )
@@ -91,12 +91,17 @@ class Brain:
                      tuple(sorted({item["document_id"] for item in record["evidence"]
                                    if item.get("document_id")})))
                 ][1]
-            ][:limit]
+            ]
+            if review_states:
+                records = [record for record in records if record['review_state'] in review_states]
+            records = records[:limit]
         return records
 
     def review_research_object(self, object_id: str, *, review_state: str,
-                               note: str | None = None, actor: str = "user") -> ResearchObject:
-        return self.store.review_object(object_id, review_state=review_state, note=note, actor=actor)
+                               note: str | None = None, actor: str = "user",
+                               expected_version: str | None = None) -> ResearchObject:
+        return self.store.review_object(object_id, review_state=review_state, note=note, actor=actor,
+                                        expected_version=expected_version)
 
     def extract(self, task: str, document_id: str, *, compilation_id: str | None = None,
                 live: bool = False, force: bool = False) -> ExtractionResult:

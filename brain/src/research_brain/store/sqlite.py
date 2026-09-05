@@ -29,10 +29,17 @@ def utc_now() -> str:
 
 
 class SQLiteStore:
-    def __init__(self, path: str | Path):
+    def __init__(self, path: str | Path, *, initialize: bool = True):
         self.path = Path(path)
-        self.path.parent.mkdir(parents=True, exist_ok=True)
-        self.migrate()
+        if initialize:
+            self.path.parent.mkdir(parents=True, exist_ok=True)
+            self.migrate()
+        else:
+            with sqlite3.connect(f"{self.path.as_uri()}?mode=ro", uri=True) as connection:
+                actual = {r[0] for r in connection.execute("SELECT version FROM schema_migrations")}
+            expected = {int(p.name.split('_')[0]) for p in importlib.resources.files('research_brain.store').joinpath('migrations').iterdir() if p.suffix == '.sql'}
+            if actual != expected:
+                raise ValueError("Incompatible Brain schema; migrate explicitly before opening reviewer")
 
     @contextmanager
     def connect(self) -> Iterator[sqlite3.Connection]:
@@ -283,13 +290,16 @@ class SQLiteStore:
             return result
 
     def review_object(self, object_id: str, *, review_state: str, note: str | None = None,
-                      actor: str = "user") -> ResearchObject:
+                      actor: str = "user", expected_version: str | None = None) -> ResearchObject:
         if review_state not in REVIEW_STATES - {"UNREVIEWED"}:
             raise ValueError(f"Invalid review decision: {review_state}")
         with self.connect() as connection:
-            row = connection.execute("SELECT review_state FROM research_objects WHERE id=?", (object_id,)).fetchone()
+            connection.execute("BEGIN IMMEDIATE")
+            row = connection.execute("SELECT review_state, updated_at FROM research_objects WHERE id=?", (object_id,)).fetchone()
             if not row:
                 raise LookupError(f"Research object not found: {object_id}")
+            if expected_version is not None and row['updated_at'] != expected_version:
+                raise ValueError("Review conflict: card changed; reload before reviewing")
             now = utc_now()
             connection.execute("UPDATE research_objects SET review_state=?, updated_at=? WHERE id=?",
                                (review_state, now, object_id))

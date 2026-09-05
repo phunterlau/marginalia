@@ -40,6 +40,8 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--root", default="data", help="Brain data directory (default: ./data)")
     commands = parser.add_subparsers(dest="command", required=True)
     commands.add_parser("init", help="Create/migrate the Brain database")
+    reviewer = commands.add_parser("review-ui", help="Open the local memory reviewer")
+    reviewer.add_argument("--port", type=int, default=8765)
 
     ingest = commands.add_parser("ingest", help="Archive and structurally index a file or URL")
     ingest.add_argument("source")
@@ -241,6 +243,9 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def run(args: argparse.Namespace) -> Any:
+    if args.command == "review-ui":
+        from .reviewer import serve
+        return serve(Path(args.root), args.port)
     brain = Brain(Path(args.root))
     if args.command == "init":
         return {"database": str(brain.store.path), "status": "ready"}
