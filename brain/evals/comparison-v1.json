@@ -1,0 +1,12 @@
+{
+  "schema": "ResearchComparisonV1",
+  "cases": [
+    {
+      "name": "principled-directions",
+      "question": "Which principled perturbation directions should I try without gradients, and what minimal experiment would distinguish useful directions from merely high-variance ones?",
+      "task_brief": "Activation access is available; gradients and training are not. Keep compute low, compare equal-norm interventions, and distinguish measured evidence from proposed explanations. Consider recorded attempts and failures when memory is supplied. Propose a test rather than claiming an experiment has been performed.",
+      "mode": "critique",
+      "limit": 8
+    }
+  ]
+}

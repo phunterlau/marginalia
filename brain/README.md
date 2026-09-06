@@ -73,6 +73,50 @@ counterevidence. Question items expose `question_links` (up to eight stored,
 directional, epistemically labeled links) and `question_links_omitted`. These are
 read-only packet projections; no graph edges or review states are changed.
 
+## Judged research comparisons
+
+Preview two matched comparisons with no API calls or output artifacts:
+
+```bash
+research compare-research evals/comparison-v1.json --fixture --dry-run
+```
+
+Explicitly enable live generation/judging and choose a fresh output directory:
+
+```bash
+research compare-research evals/comparison-v1.json --fixture --live \
+  --output-dir /absolute/path/to/local/comparison-run
+```
+
+Replace `--fixture` with `--thread obj_ID` and select an existing `--root` for a
+real research thread. The source database is snapshot-copied; answers and generation
+attempts go into the new artifact directory, never into reliable memory. No cards
+are accepted, changed, or generated there. Full snapshots and responses stay local.
+
+Each case uses nine logical calls: a blind draft, revisions with and without memory,
+raw-top-k and ResearchPacket answers, and two anonymous order-swapped judgments for
+each comparison. Retrieval is lexical-only for both paths. Generation uses equal
+output limits and the same model; input ceilings match but actual lengths differ.
+The judge receives each answer's evidence availability so it does not punish a
+blind answer for correctly stating that no results were supplied.
+
+Defaults: `RESEARCH_COMPARE_MODEL=gpt-5.6-luna`, `RESEARCH_JUDGE_MODEL` defaults to the
+generator, and `RESEARCH_REASONING_EFFORT=medium`. Credentials are environment-only
+`OPENAI_API_KEY`; the optional OpenAI dependency must be installed. Responses use
+strict JSON schemas, `store=false`, a 60-second timeout, and a 4,096-output-token
+ceiling. Hidden SDK retries are disabled; only network/timeouts, 429, and 5xx get
+up to two explicit retries. Refused, incomplete, and invalid outputs fail the run
+while retaining response IDs, raw output, and available usage.
+
+Artifacts include a separate generation ledger, exact requests/responses, answers,
+anonymous human-review JSON, score breakdowns, order-sensitivity flags, and a final
+report. Existing output directories are never overwritten. A successful exit means
+the harness completed, **not** that memory improved research: human review remains
+pending, history-awareness gains are separated from other dimensions, and one
+synthetic trial with a same-model judge cannot establish general usefulness.
+
+The optional adapter follows the official [Structured Outputs documentation](https://developers.openai.com/api/docs/guides/structured-outputs).
+
 ## What works
 
 - immutable source assets and source revisions;

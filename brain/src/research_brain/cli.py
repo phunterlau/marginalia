@@ -237,6 +237,15 @@ def build_parser() -> argparse.ArgumentParser:
     frontier_eval = commands.add_parser('evaluate-frontier', help='Offline ResearchPacket acceptance checks')
     frontier_eval.add_argument('spec')
     frontier_eval.add_argument('--output', help='Save a new JSON report; never overwrite an existing artifact')
+    comparison = commands.add_parser('compare-research', help='Preview or run isolated judged research comparisons')
+    comparison.add_argument('spec')
+    comparison_target = comparison.add_mutually_exclusive_group(required=True)
+    comparison_target.add_argument('--fixture', action='store_true')
+    comparison_target.add_argument('--thread')
+    comparison_spend = comparison.add_mutually_exclusive_group()
+    comparison_spend.add_argument('--live', action='store_true')
+    comparison_spend.add_argument('--dry-run', action='store_true')
+    comparison.add_argument('--output-dir', type=Path)
     target = frontier_eval.add_mutually_exclusive_group(required=True)
     target.add_argument('--fixture', action='store_true', help='Use an isolated synthetic frontier; ignore --root')
     target.add_argument('--thread', help='Evaluate an existing thread without provider calls')
@@ -249,6 +258,20 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def run(args: argparse.Namespace) -> Any:
+    if args.command == 'compare-research':
+        from .comparison import compare_research, load_comparison_spec
+        load_comparison_spec(args.spec)
+        options = dict(live=args.live, output_dir=args.output_dir)
+        if args.fixture:
+            from tempfile import TemporaryDirectory
+            from .frontier_evaluation import seed_frontier_fixture
+            with TemporaryDirectory(prefix='research-comparison-') as temporary:
+                fixture_brain = Brain(Path(temporary))
+                thread = seed_frontier_fixture(fixture_brain)
+                return compare_research(fixture_brain,args.spec,thread_id=thread,fixture=True,**options)
+        from .store import SQLiteStore
+        SQLiteStore(Path(args.root).expanduser().resolve() / 'brain.sqlite3', initialize=False)
+        return compare_research(Brain(Path(args.root)),args.spec,thread_id=args.thread,**options)
     if args.command == 'evaluate-frontier':
         from .frontier_evaluation import evaluate_frontier, load_spec, seed_frontier_fixture
         load_spec(args.spec)
