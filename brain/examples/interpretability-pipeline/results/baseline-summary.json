@@ -1,0 +1,40 @@
+{
+  "conditions": [
+    {
+      "template": "original",
+      "correct": 6,
+      "n": 12,
+      "correct_per_label": {
+        "positive": 6,
+        "negative": 0
+      },
+      "mean_target_probability_mass": 0.217324148863554,
+      "gate_passed": false
+    },
+    {
+      "template": "positive_first",
+      "correct": 11,
+      "n": 12,
+      "correct_per_label": {
+        "positive": 6,
+        "negative": 5
+      },
+      "mean_target_probability_mass": 0.9166050453980764,
+      "gate_passed": true
+    },
+    {
+      "template": "negative_first",
+      "correct": 12,
+      "n": 12,
+      "correct_per_label": {
+        "positive": 6,
+        "negative": 6
+      },
+      "mean_target_probability_mass": 0.9256978183984756,
+      "gate_passed": true
+    }
+  ],
+  "few_shot_qualified": true,
+  "selection_rule": "Both few-shot orders must pass; otherwise no format qualifies. These are development results, never a fresh steering test.",
+  "scope": "development_only"
+}

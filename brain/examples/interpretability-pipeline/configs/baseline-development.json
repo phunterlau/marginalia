@@ -1,0 +1,20 @@
+{
+  "schema": "BaselineDevelopmentV1",
+  "question": "Does a fixed two-example completion format repair the pilot's weak sentiment-label baseline on new development topics?",
+  "templates": {
+    "original": "Classify the sentiment of this review as positive or negative.\nReview: {text}\nSentiment:",
+    "positive_first": "Review: I loved every minute.\nSentiment: positive\n\nReview: I hated every minute.\nSentiment: negative\n\nReview: {text}\nSentiment:",
+    "negative_first": "Review: I hated every minute.\nSentiment: negative\n\nReview: I loved every minute.\nSentiment: positive\n\nReview: {text}\nSentiment:"
+  },
+  "development": [
+    {"id": "dev-bicycle", "positive": "The bicycle is sturdy and a pleasure to ride.", "negative": "The bicycle is flimsy and miserable to ride."},
+    {"id": "dev-museum", "positive": "The museum was fascinating and beautifully arranged.", "negative": "The museum was boring and badly arranged."},
+    {"id": "dev-software", "positive": "The software is reliable and wonderfully easy to use.", "negative": "The software is unreliable and painfully hard to use."},
+    {"id": "dev-blanket", "positive": "The blanket is soft and wonderfully cozy.", "negative": "The blanket is scratchy and terribly uncomfortable."},
+    {"id": "dev-train", "positive": "The train journey was smooth and relaxing.", "negative": "The train journey was rough and exhausting."},
+    {"id": "dev-painting", "positive": "The painting is stunning and full of charm.", "negative": "The painting is hideous and completely charmless."}
+  ],
+  "gate": {"minimum_correct": 10, "minimum_correct_per_label": 5, "minimum_mean_target_mass": 0.5},
+  "selection_rule": "Both few-shot orders must pass; otherwise no format qualifies. These are development results, never a fresh steering test.",
+  "budget": {"forward_passes": 36, "backward_passes": 0, "provider_calls": 0}
+}

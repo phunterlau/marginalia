@@ -1,5 +1,13 @@
 # Research Brain
 
+## Worked research example
+
+[Forward-only interpretability pipeline](examples/interpretability-pipeline/README.md)
+connects a real Qwen activation-steering pilot to Brain evidence retrieval, an
+isolated research thread, a frozen baseline diagnostic, and a read-only Pi handoff.
+It includes runnable code and lightweight measured results, with explicit boundaries
+between observations, unreviewed interpretations, and proposed next experiments.
+
 ## Local memory reviewer
 
 The optional reviewer presents Method/Math cards beside their exact source evidence.

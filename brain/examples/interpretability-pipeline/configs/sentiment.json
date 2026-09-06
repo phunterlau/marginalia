@@ -1,0 +1,29 @@
+{
+  "schema_version": 1,
+  "question": "Do calibration-derived sentiment directions shift held-out sentiment label logits more than matched-norm random directions?",
+  "model_id": "Qwen/Qwen3-0.6B",
+  "revision": "c1899de289a04d12100db370d81485cdf75e47ca",
+  "layer": 13,
+  "seed": 1729,
+  "random_directions": 5,
+  "alphas": [-0.1, 0.0, 0.1],
+  "device": "cpu",
+  "max_tokens": 256,
+  "template": "Classify the sentiment of this review as positive or negative.\nReview: {text}\nSentiment:",
+  "positive_target": " positive",
+  "negative_target": " negative",
+  "calibration": [
+    {"id": "cal-book", "positive": "This book was wonderful and engaging.", "negative": "This book was awful and boring."},
+    {"id": "cal-meal", "positive": "The meal was delicious and satisfying.", "negative": "The meal was disgusting and disappointing."},
+    {"id": "cal-film", "positive": "The film was excellent and moving.", "negative": "The film was terrible and tedious."},
+    {"id": "cal-hotel", "positive": "The hotel was comfortable and welcoming.", "negative": "The hotel was filthy and unpleasant."},
+    {"id": "cal-service", "positive": "The service was friendly and efficient.", "negative": "The service was rude and slow."},
+    {"id": "cal-game", "positive": "The game was delightful and entertaining.", "negative": "The game was frustrating and dull."}
+  ],
+  "evaluation": [
+    {"id": "test-headphones", "positive": "These headphones sound superb and feel great.", "negative": "These headphones sound dreadful and hurt my ears."},
+    {"id": "test-garden", "positive": "The garden is beautiful and peaceful.", "negative": "The garden is ugly and neglected."},
+    {"id": "test-class", "positive": "The class was inspiring and clear.", "negative": "The class was confusing and pointless."},
+    {"id": "test-concert", "positive": "The concert was brilliant and exciting.", "negative": "The concert was miserable and lifeless."}
+  ]
+}

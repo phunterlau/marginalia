@@ -1,0 +1,350 @@
+{
+  "kind": "MEASURED",
+  "baseline_label_accuracy": 0.5,
+  "calibration": {
+    "calibration_mean_residual_norm": 40.80781173706055,
+    "pca_explained_variance_fraction": 0.3310563266277313,
+    "mean_pca_cosine": 0.9957892894744873
+  },
+  "conditions": [
+    {
+      "method": "mean_difference",
+      "alpha": -0.1,
+      "n_pairs": 4,
+      "gap_delta": {
+        "mean": -0.19839483499526978,
+        "pair_bootstrap_95_percentile": [
+          -0.23171095550060272,
+          -0.16819387674331665
+        ]
+      },
+      "mean_kl_from_baseline": 0.011825872818008065,
+      "label_accuracy": 0.625,
+      "excess_over_random_mean": {
+        "mean": -0.1583881050348282,
+        "pair_bootstrap_95_percentile": [
+          -0.1890714794397354,
+          -0.12712391018867492
+        ]
+      }
+    },
+    {
+      "method": "mean_difference",
+      "alpha": 0.0,
+      "n_pairs": 4,
+      "gap_delta": {
+        "mean": 0.0,
+        "pair_bootstrap_95_percentile": [
+          0.0,
+          0.0
+        ]
+      },
+      "mean_kl_from_baseline": 0.0,
+      "label_accuracy": 0.5,
+      "excess_over_random_mean": {
+        "mean": 0.0,
+        "pair_bootstrap_95_percentile": [
+          0.0,
+          0.0
+        ]
+      }
+    },
+    {
+      "method": "mean_difference",
+      "alpha": 0.1,
+      "n_pairs": 4,
+      "gap_delta": {
+        "mean": 0.17052213847637177,
+        "pair_bootstrap_95_percentile": [
+          0.1488722860813141,
+          0.19267773628234863
+        ]
+      },
+      "mean_kl_from_baseline": 0.00868038460612297,
+      "label_accuracy": 0.5,
+      "excess_over_random_mean": {
+        "mean": 0.15540595054626463,
+        "pair_bootstrap_95_percentile": [
+          0.1339348614215851,
+          0.17611626982688905
+        ]
+      }
+    },
+    {
+      "method": "pooled_pca",
+      "alpha": -0.1,
+      "n_pairs": 4,
+      "gap_delta": {
+        "mean": -0.22156526148319244,
+        "pair_bootstrap_95_percentile": [
+          -0.25532175600528717,
+          -0.1913786232471466
+        ]
+      },
+      "mean_kl_from_baseline": 0.015145540935918689,
+      "label_accuracy": 0.625,
+      "excess_over_random_mean": {
+        "mean": -0.18155853152275087,
+        "pair_bootstrap_95_percentile": [
+          -0.21268227994441985,
+          -0.1502310961484909
+        ]
+      }
+    },
+    {
+      "method": "pooled_pca",
+      "alpha": 0.0,
+      "n_pairs": 4,
+      "gap_delta": {
+        "mean": 0.0,
+        "pair_bootstrap_95_percentile": [
+          0.0,
+          0.0
+        ]
+      },
+      "mean_kl_from_baseline": 0.0,
+      "label_accuracy": 0.5,
+      "excess_over_random_mean": {
+        "mean": 0.0,
+        "pair_bootstrap_95_percentile": [
+          0.0,
+          0.0
+        ]
+      }
+    },
+    {
+      "method": "pooled_pca",
+      "alpha": 0.1,
+      "n_pairs": 4,
+      "gap_delta": {
+        "mean": 0.1961493194103241,
+        "pair_bootstrap_95_percentile": [
+          0.17522045969963074,
+          0.2178053855895996
+        ]
+      },
+      "mean_kl_from_baseline": 0.010482240351848304,
+      "label_accuracy": 0.5,
+      "excess_over_random_mean": {
+        "mean": 0.18103313148021696,
+        "pair_bootstrap_95_percentile": [
+          0.15968917906284333,
+          0.20124391913414003
+        ]
+      }
+    },
+    {
+      "method": "random_000",
+      "alpha": -0.1,
+      "n_pairs": 4,
+      "gap_delta": {
+        "mean": -0.20072416961193085,
+        "pair_bootstrap_95_percentile": [
+          -0.2123270481824875,
+          -0.1879124939441681
+        ]
+      },
+      "mean_kl_from_baseline": 0.011461445596069098,
+      "label_accuracy": 0.625
+    },
+    {
+      "method": "random_000",
+      "alpha": 0.0,
+      "n_pairs": 4,
+      "gap_delta": {
+        "mean": 0.0,
+        "pair_bootstrap_95_percentile": [
+          0.0,
+          0.0
+        ]
+      },
+      "mean_kl_from_baseline": 0.0,
+      "label_accuracy": 0.5
+    },
+    {
+      "method": "random_000",
+      "alpha": 0.1,
+      "n_pairs": 4,
+      "gap_delta": {
+        "mean": 0.22087138891220093,
+        "pair_bootstrap_95_percentile": [
+          0.2195567488670349,
+          0.22245359420776367
+        ]
+      },
+      "mean_kl_from_baseline": 0.0063411371083930135,
+      "label_accuracy": 0.5
+    },
+    {
+      "method": "random_001",
+      "alpha": -0.1,
+      "n_pairs": 4,
+      "gap_delta": {
+        "mean": -0.2286241352558136,
+        "pair_bootstrap_95_percentile": [
+          -0.24193909764289856,
+          -0.21530917286872864
+        ]
+      },
+      "mean_kl_from_baseline": 0.046634420519694686,
+      "label_accuracy": 0.625
+    },
+    {
+      "method": "random_001",
+      "alpha": 0.0,
+      "n_pairs": 4,
+      "gap_delta": {
+        "mean": 0.0,
+        "pair_bootstrap_95_percentile": [
+          0.0,
+          0.0
+        ]
+      },
+      "mean_kl_from_baseline": 0.0,
+      "label_accuracy": 0.5
+    },
+    {
+      "method": "random_001",
+      "alpha": 0.1,
+      "n_pairs": 4,
+      "gap_delta": {
+        "mean": 0.20378372073173523,
+        "pair_bootstrap_95_percentile": [
+          0.19635295867919922,
+          0.21175862848758698
+        ]
+      },
+      "mean_kl_from_baseline": 0.06555339600890875,
+      "label_accuracy": 0.5
+    },
+    {
+      "method": "random_002",
+      "alpha": -0.1,
+      "n_pairs": 4,
+      "gap_delta": {
+        "mean": 0.022977039217948914,
+        "pair_bootstrap_95_percentile": [
+          0.0030130743980407715,
+          0.044141724705696106
+        ]
+      },
+      "mean_kl_from_baseline": 0.018031871411949396,
+      "label_accuracy": 0.5
+    },
+    {
+      "method": "random_002",
+      "alpha": 0.0,
+      "n_pairs": 4,
+      "gap_delta": {
+        "mean": 0.0,
+        "pair_bootstrap_95_percentile": [
+          0.0,
+          0.0
+        ]
+      },
+      "mean_kl_from_baseline": 0.0,
+      "label_accuracy": 0.5
+    },
+    {
+      "method": "random_002",
+      "alpha": 0.1,
+      "n_pairs": 4,
+      "gap_delta": {
+        "mean": -0.04101012647151947,
+        "pair_bootstrap_95_percentile": [
+          -0.06374616920948029,
+          -0.019320011138916016
+        ]
+      },
+      "mean_kl_from_baseline": 0.014876298024319112,
+      "label_accuracy": 0.625
+    },
+    {
+      "method": "random_003",
+      "alpha": -0.1,
+      "n_pairs": 4,
+      "gap_delta": {
+        "mean": 0.08966252207756042,
+        "pair_bootstrap_95_percentile": [
+          0.05709502100944519,
+          0.12422008812427521
+        ]
+      },
+      "mean_kl_from_baseline": 0.016023022355511785,
+      "label_accuracy": 0.5
+    },
+    {
+      "method": "random_003",
+      "alpha": 0.0,
+      "n_pairs": 4,
+      "gap_delta": {
+        "mean": 0.0,
+        "pair_bootstrap_95_percentile": [
+          0.0,
+          0.0
+        ]
+      },
+      "mean_kl_from_baseline": 0.0,
+      "label_accuracy": 0.5
+    },
+    {
+      "method": "random_003",
+      "alpha": 0.1,
+      "n_pairs": 4,
+      "gap_delta": {
+        "mean": -0.1282370686531067,
+        "pair_bootstrap_95_percentile": [
+          -0.16152504086494446,
+          -0.10143622756004333
+        ]
+      },
+      "mean_kl_from_baseline": 0.01840085012372583,
+      "label_accuracy": 0.5
+    },
+    {
+      "method": "random_004",
+      "alpha": -0.1,
+      "n_pairs": 4,
+      "gap_delta": {
+        "mean": 0.11667509377002716,
+        "pair_bootstrap_95_percentile": [
+          0.10633254051208496,
+          0.12286370992660522
+        ]
+      },
+      "mean_kl_from_baseline": 0.04766304325312376,
+      "label_accuracy": 0.5
+    },
+    {
+      "method": "random_004",
+      "alpha": 0.0,
+      "n_pairs": 4,
+      "gap_delta": {
+        "mean": 0.0,
+        "pair_bootstrap_95_percentile": [
+          0.0,
+          0.0
+        ]
+      },
+      "mean_kl_from_baseline": 0.0,
+      "label_accuracy": 0.5
+    },
+    {
+      "method": "random_004",
+      "alpha": 0.1,
+      "n_pairs": 4,
+      "gap_delta": {
+        "mean": -0.17982697486877441,
+        "pair_bootstrap_95_percentile": [
+          -0.19180259108543396,
+          -0.16279476881027222
+        ]
+      },
+      "mean_kl_from_baseline": 0.05693786218762398,
+      "label_accuracy": 0.625
+    }
+  ],
+  "forward_passes": 188,
+  "backward_passes": 0,
+  "provider_calls": 0
+}
