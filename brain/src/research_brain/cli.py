@@ -43,6 +43,18 @@ def build_parser() -> argparse.ArgumentParser:
     location.add_argument("--space", help="Explicit registered space (never searches other spaces)")
     parser.add_argument("--registry", default=os.getenv("RESEARCH_SPACE_REGISTRY", str(Path.home() / ".local/share/research-brain")))
     commands = parser.add_subparsers(dest="command", required=True)
+    commands.add_parser("doctor", help="Read-only integrity, asset and orphan report")
+    migration = commands.add_parser("migrate", help="Explicit migration after a verified snapshot")
+    migration.add_argument("--backup", type=Path, required=True)
+    backups = commands.add_parser("backup", help="Consistent local snapshots and safe restore")
+    backup_commands = backups.add_subparsers(dest="backup_command", required=True)
+    make_backup = backup_commands.add_parser("create")
+    make_backup.add_argument("destination", type=Path)
+    verify = backup_commands.add_parser("verify")
+    verify.add_argument("snapshot", type=Path)
+    restore = backup_commands.add_parser("restore")
+    restore.add_argument("snapshot", type=Path)
+    restore.add_argument("--to", type=Path, required=True)
     absorb = commands.add_parser("absorb", help="Ingest a pinned arXiv source and prepare a paid-work approval")
     absorb.add_argument("url")
     absorb.add_argument("--max-calls", type=int, default=32)
@@ -316,9 +328,22 @@ def run(args: argparse.Namespace) -> Any:
         registry = SpaceRegistry(args.registry)
         args.root = registry.get(args.space)["root"]
         from .store import SQLiteStore
-        SQLiteStore(Path(args.root) / "brain.sqlite3", initialize=False)
+        if args.command not in {"migrate", "backup", "doctor"}:
+            SQLiteStore(Path(args.root) / "brain.sqlite3", initialize=False)
     else:
         args.root = args.root or "data"
+    if args.command in {"backup", "migrate", "doctor"}:
+        from . import maintenance
+        if args.command == "doctor":
+            return maintenance.doctor(args.root)
+        if args.command == "migrate":
+            return maintenance.migrate(args.root, args.backup)
+        if args.backup_command == "create":
+            return maintenance.backup(args.root, args.destination)
+        if args.backup_command == "verify":
+            manifest = maintenance.verify_backup(args.snapshot)
+            return {"verified": True, "asset_count": len(manifest["assets"]), "databases": manifest["includes"]}
+        return maintenance.restore(args.snapshot, args.to)
     if args.command in {"absorb", "jobs", "worker"}:
         if not args.space:
             raise ValueError("Absorption jobs require an explicit registered --space")
@@ -543,6 +568,8 @@ def main(argv: list[str] | None = None) -> int:
         print(_json({"error": type(exc).__name__, "message": str(exc)}), file=sys.stderr)
         return 2
     print(_json(result))
+    if isinstance(result, dict) and result.get("healthy") is False:
+        return 1
     return 1 if is_dataclass(result) and getattr(result, "passed", True) is False else 0
 
 

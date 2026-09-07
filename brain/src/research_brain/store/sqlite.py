@@ -30,9 +30,9 @@ def utc_now() -> str:
 
 
 class SQLiteStore:
-    def __init__(self, path: str | Path, *, initialize: bool = True):
-        self.path = Path(path)
-        if initialize:
+    def __init__(self, path: str | Path, *, initialize: bool = True, allow_migration: bool = False):
+        self.path = Path(path).expanduser().resolve()
+        if initialize and (not self.path.exists() or allow_migration):
             self.path.parent.mkdir(parents=True, exist_ok=True)
             self.migrate()
         else:
@@ -61,15 +61,29 @@ class SQLiteStore:
         migration_root = importlib.resources.files("research_brain.store").joinpath("migrations")
         with self.connect() as connection:
             connection.execute("PRAGMA journal_mode = WAL")
+            connection.execute("BEGIN IMMEDIATE")
             connection.execute("CREATE TABLE IF NOT EXISTS schema_migrations (version INTEGER PRIMARY KEY, applied_at TEXT NOT NULL)")
             applied = {row[0] for row in connection.execute("SELECT version FROM schema_migrations")}
+            available = {int(item.name.split('_')[0]) for item in migration_root.iterdir() if item.suffix == '.sql'}
+            if not applied <= available or applied != {v for v in available if v <= max(applied, default=0)}:
+                raise ValueError("Unknown or non-contiguous migration history")
             for migration in sorted(migration_root.iterdir(), key=lambda item: item.name):
                 if migration.suffix != ".sql":
                     continue
                 version = int(migration.name.split("_", 1)[0])
                 if version in applied:
                     continue
-                connection.executescript(migration.read_text(encoding="utf-8"))
+                # executescript implicitly commits first. Parse complete SQL
+                # statements instead, keeping DDL and version rows atomic.
+                statement = ""
+                for char in migration.read_text(encoding="utf-8"):
+                    statement += char
+                    if char == ";" and sqlite3.complete_statement(statement):
+                        connection.execute(statement)
+                        statement = ""
+                if statement.strip():
+                    # Trailing comments are harmless; incomplete SQL is not.
+                    connection.execute(statement)
                 connection.execute("INSERT INTO schema_migrations(version, applied_at) VALUES (?, ?)", (version, utc_now()))
 
     def add_source_asset(self, *, asset_id: str, kind: str, uri: str, local_path: str, sha256: str, content_type: str | None) -> None:

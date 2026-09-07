@@ -87,7 +87,8 @@ ceilings, stale approvals, wrong-space jobs, malformed outputs, transactional
 card rollback, and canonical-commit/checkpoint failure. These tests use synthetic
 providers and do not establish live API behavior or scientific usefulness.
 
-Before unattended use, the remaining backend gates are consistent backup/restore,
-explicit backed-up migration, staging reconciliation, a parser process deadline,
+The [maintenance commands](maintenance.md) provide consistent backup/restore,
+explicit backed-up migration, and report-only orphan/staging reconciliation.
+Before unattended use, the remaining backend gates include a parser process deadline,
 the full local-corpus failure matrix, and an explicitly approved live absorption.
 This command does not yet install a daemon, expose Discord, or start Pi.
