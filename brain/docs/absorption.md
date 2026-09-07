@@ -55,6 +55,15 @@ without inserting any of its cards, including valid cards from earlier sections.
 The ledger's successful provider attempts describe completed API requests, not
 successful scientific extraction; inspect the generation/task status as well.
 
+Extraction contract v5 constrains dedicated citation fields to exact IDs in each
+call's JSON Schema enums. Narratives use readable prose and the formal evidence
+array remains card-level support, not manufactured claim-level annotation.
+Local validation still rejects unknown narrative references and out-of-chunk
+citations; no fuzzy ID correction is performed. Chunks contain at most 250 unique
+citation IDs (including equation context) as well as the character limit below.
+Changing this version requires a new approval plan; old failed outputs remain
+unchanged and are never relabeled successful by a parser or prompt change.
+
 The job database uses WAL, foreign keys and atomic claims. An OS worker lock
 allows one foreground worker per space; it is released on process death. On the
 next worker invocation, interrupted jobs become `NEEDS_ATTENTION`, not queued.

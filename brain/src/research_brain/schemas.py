@@ -82,6 +82,8 @@ def validate_schema_shape(value: Any, schema: dict[str, Any], path: str = "outpu
     actual = "null" if value is None else {dict: "object", list: "array", str: "string", bool: "boolean", int: "integer", float: "number"}.get(type(value))
     if actual not in kinds:
         raise ValueError(f"{path}: invalid JSON type")
+    if "enum" in schema and value not in schema["enum"]:
+        raise ValueError(f"{path}: value outside allowed enum")
     if actual == "object":
         properties = schema["properties"]
         if not set(schema.get("required", [])) <= value.keys():
@@ -91,6 +93,8 @@ def validate_schema_shape(value: Any, schema: dict[str, Any], path: str = "outpu
         for key, item in value.items():
             validate_schema_shape(item, properties[key], f"{path}.{key}")
     elif actual == "array":
+        if "maxItems" in schema and len(value) > schema["maxItems"]:
+            raise ValueError(f"{path}: too many items")
         for index, item in enumerate(value):
             validate_schema_shape(item, schema["items"], f"{path}[{index}]")
 

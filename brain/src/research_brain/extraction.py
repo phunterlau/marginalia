@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import asdict, dataclass
+from copy import deepcopy
 import hashlib
 import json
 import os
@@ -17,7 +18,8 @@ from .store.sqlite import SQLiteStore, utc_now
 
 
 MAX_CHARS = 180_000
-PROMPT_VERSION = "evidence-cards-v4-section-bounds-output-cap-16384"
+PROMPT_VERSION = "evidence-cards-v5-chunk-citation-enums-250-output-cap-16384"
+MAX_CITATION_IDS = 250
 
 
 @dataclass(frozen=True)
@@ -42,8 +44,33 @@ class ExtractionResult:
     object_ids: tuple[str, ...]
 
 
-METHOD_INSTRUCTIONS = """Extract paper-specific methods only. Every claim must cite one or more supplied block_id values. Every block identifier mentioned anywhere must exactly match a supplied block_id; include the principal supporting blocks in the formal evidence array. Use null when an access requirement is not established. Do not infer experimental success or requirements that the evidence does not support."""
-MATH_INSTRUCTIONS = """Interpret important displayed equations. Reference exactly one supplied equation_block_id and only supplied context block IDs. Do not reproduce or alter LaTeX; the application copies canonical LaTeX from evidence after validation."""
+METHOD_INSTRUCTIONS = """Extract paper-specific methods only. Ground every claim in supplied evidence. Put citations in the formal evidence array, selecting exact block_id values from its schema enum, and explain their supporting relationship in relation. Keep titles and narrative fields readable: do not repeat block IDs there. The evidence array provides card-level support, not a claim-level annotation. Use null when an access requirement is not established. Do not infer experimental success or requirements that the evidence does not support."""
+MATH_INSTRUCTIONS = """Interpret important displayed equations. Select exactly one supplied equation_block_id and only supplied context block IDs from their schema enums. Put block IDs only in these dedicated citation fields, not in narrative text. Do not reproduce or alter LaTeX; the application copies canonical LaTeX from evidence after validation."""
+
+
+def _chunk_ids(records: list[dict[str, Any]]) -> set[str]:
+    return {item["block_id"] for record in records for item in [record, *record.get("context", [])]}
+
+
+def _chunk_schema(task: str, chunk: list[dict[str, Any]]) -> dict[str, Any]:
+    """Constrain reference choices before generation; retain local validation."""
+    ids = _chunk_ids(chunk)
+    if not ids or len(ids) > MAX_CITATION_IDS:
+        raise ValueError("Extraction chunk exceeds citation enum bounds")
+    schema = deepcopy(METHOD_EXTRACTION_SCHEMA if task == "methods" else MATH_EXTRACTION_SCHEMA)
+    fields = schema["properties"]["cards"]["items"]["properties"]
+    if task == "methods":
+        fields["evidence"]["items"]["properties"]["block_id"] = {"type": "string", "enum": sorted(ids)}
+    else:
+        fields["equation_block_id"] = {"type": "string", "enum": sorted({r["block_id"] for r in chunk})}
+        context_ids = sorted({item["block_id"] for record in chunk for item in record.get("context", [])})
+        # Replace the shared STRING_ARRAY object rather than mutating its items.
+        fields["context_block_ids"] = {"type": "array", "items": {"type": "string"}}
+        if context_ids:
+            fields["context_block_ids"]["items"]["enum"] = context_ids
+        else:
+            fields["context_block_ids"]["maxItems"] = 0
+    return schema
 
 
 def _evidence_record(block: dict[str, Any]) -> dict[str, Any]:
@@ -90,7 +117,8 @@ def _pack_records(records: list[dict[str, Any]]) -> list[list[dict[str, Any]]]:
         if _serialized_size([record]) > MAX_CHARS:
             raise ValueError("Evidence bundle exceeds extraction input limit")
         if current and (record.get("section_path") != current[-1].get("section_path")
-                        or _serialized_size([*current, record]) > MAX_CHARS):
+                        or _serialized_size([*current, record]) > MAX_CHARS
+                        or len(_chunk_ids([*current, record])) > MAX_CITATION_IDS):
             chunks.append(current)
             current = []
         current.append(record)
@@ -210,12 +238,15 @@ class Extractor:
                 from .openai_provider import OpenAIResponsesProvider
                 provider = OpenAIResponsesProvider(model=model, reasoning_effort=effort)
             for chunk in chunks:
+                chunk_schema = _chunk_schema(task, chunk)
+                allowed_ids = _chunk_ids(chunk)
+                chunk_blocks = {key: block_map[key] for key in allowed_ids}
                 for retry in range(3):
                     attempt_number += 1
                     started = utc_now()
                     self.store.dispatch_attempt(run_id=run_id, number=attempt_number, started_at=started)
                     try:
-                        response = provider.extract(schema_name=schema_version, schema=schema,
+                        response = provider.extract(schema_name=schema_version, schema=chunk_schema,
                                                     instructions=instructions, evidence=chunk)
                         outputs.append(response["output"])
                         response_ids.append(response.get("response_id", ""))
@@ -246,11 +277,11 @@ class Extractor:
                 # A returned response is ledgered above before local validation.
                 # Stop before spending on later chunks when this one is invalid;
                 # retain all outputs but commit no cards from a partial task.
-                validate_schema_shape(outputs[-1], schema)
+                validate_schema_shape(outputs[-1], chunk_schema)
                 if task == "methods":
-                    validate_method_cards(outputs[-1], set(block_map))
+                    validate_method_cards(outputs[-1], allowed_ids)
                 else:
-                    validate_math_cards(outputs[-1], block_map)
+                    validate_math_cards(outputs[-1], chunk_blocks)
             merged_cards: list[dict[str, Any]] = []
             seen_cards: set[tuple[str, tuple[str, ...]]] = set()
             block_map = {block["id"]: block for block in blocks}
