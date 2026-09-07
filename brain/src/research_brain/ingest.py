@@ -11,7 +11,7 @@ from pathlib import Path
 import re
 import tempfile
 from urllib.parse import urlparse, urlunparse
-from urllib.request import Request, urlopen
+from urllib.request import Request, urlopen, build_opener, HTTPRedirectHandler
 from urllib.error import HTTPError
 
 from .ids import stable_id
@@ -26,7 +26,12 @@ PARSER_VERSION = "structural-v4"
 PARSER_CONFIG_DIGEST = hashlib.sha256(
     b"explicit-or-comment-aware-main-tex;in-place-reachable-tex-includes;decoded-char-spans;v4"
 ).hexdigest()
-_ARXIV_ID = re.compile(r"(?:arxiv\.org/(?:abs|pdf|html)/|huggingface\.co/papers/)(\d{4}\.\d{4,5})(v\d+)?", re.IGNORECASE)
+_ARXIV_ID = re.compile(r"/(?:abs|pdf|html|src)/(\d{4}\.\d{4,5}|[a-z-]+(?:\.[A-Z]{2})?/\d{7})(v[1-9]\d*)?(?:\.pdf)?", re.IGNORECASE)
+MAX_DOWNLOAD_BYTES = 50 * 1024 * 1024
+
+
+class SourceLimitError(RuntimeError):
+    """A resource limit must never trigger a second download via PDF fallback."""
 
 
 @dataclass(frozen=True)
@@ -56,7 +61,16 @@ def canonicalize_url(url: str) -> str:
 
 
 def arxiv_identity(url: str) -> tuple[str, str | None] | None:
-    match = _ARXIV_ID.search(url)
+    parsed = urlparse(url)
+    if parsed.scheme not in {"http", "https"} or parsed.username or parsed.password or parsed.port not in {None, 80, 443}:
+        return None
+    if parsed.hostname in {"arxiv.org", "www.arxiv.org", "export.arxiv.org"}:
+        path = parsed.path
+    elif parsed.hostname == "huggingface.co" and parsed.path.startswith("/papers/"):
+        path = parsed.path.replace("/papers/", "/abs/", 1)
+    else:
+        return None
+    match = _ARXIV_ID.fullmatch(path)
     if not match:
         return None
     return match.group(1), match.group(2)
@@ -75,9 +89,21 @@ def _kind(name: str, content_type: str | None) -> str:
 
 
 def _download(url: str, *, timeout: float) -> tuple[bytes, str, str | None]:
+    class ArxivRedirects(HTTPRedirectHandler):
+        def redirect_request(self, req, fp, code, msg, headers, newurl):
+            if not arxiv_identity(newurl) or urlparse(newurl).hostname not in {"arxiv.org", "www.arxiv.org", "export.arxiv.org"}:
+                raise ValueError("arXiv redirect outside the allowed source hosts")
+            old, new = arxiv_identity(req.full_url), arxiv_identity(newurl)
+            if old and (new[0] != old[0] or old[1] and new[1] != old[1]):
+                raise ValueError("arXiv redirect changed pinned source identity")
+            return super().redirect_request(req, fp, code, msg, headers, newurl)
     request = Request(url, headers={"User-Agent": "research-brain/0.1 (+evidence archive)"})
-    with urlopen(request, timeout=timeout) as response:  # noqa: S310 - caller explicitly requested URL ingestion
-        return response.read(), canonicalize_url(response.geturl()), response.headers.get_content_type()
+    opener = build_opener(ArxivRedirects()).open if arxiv_identity(url) else urlopen
+    with opener(request, timeout=timeout) as response:
+        data = response.read(MAX_DOWNLOAD_BYTES + 1)
+        if len(data) > MAX_DOWNLOAD_BYTES:
+            raise SourceLimitError("Source exceeds the 50 MiB download limit")
+        return data, canonicalize_url(response.geturl()), response.headers.get_content_type()
 
 
 def _looks_like_tex_source(data: bytes, content_type: str | None) -> bool:
@@ -117,7 +143,7 @@ def resolve_source(source: str | Path, *, timeout: float = 30.0) -> ResolvedSour
             if version is None:
                 resolved_version, license_uri = _arxiv_metadata(base_id, timeout=timeout)
                 if resolved_version is None:
-                    resolution_state = "unresolved"
+                    raise ValueError("Unable to resolve arXiv revision; retry or supply an explicit vN")
             requested_version = resolved_version or ""
             source_url = f"https://arxiv.org/src/{base_id}{requested_version}"
             use_pdf_fallback = False
@@ -204,17 +230,25 @@ class Ingestor:
         sha256 = hashlib.sha256(resolved.data).hexdigest()
         asset_id = stable_id("asset", resolved.uri, sha256)
         document_id = stable_id("doc", resolved.canonical_document_uri)
-        version_id = stable_id("version", document_id, sha256)
+        # Preserve existing identities when revision and bytes match. Historical
+        # hash-only IDs remain valid, but cannot collapse a different revision.
+        with self.store.connect() as connection:
+            existing = connection.execute(
+                "SELECT v.id FROM document_versions v JOIN source_assets a ON a.id=v.source_asset_id WHERE v.document_id=? AND v.version_label IS ? AND a.sha256=? ORDER BY v.created_at LIMIT 1",
+                (document_id, resolved.version_label, sha256),
+            ).fetchone()
+        version_id = existing[0] if existing else stable_id("version", document_id, resolved.version_label or "unversioned", sha256)
         compilation_id = stable_id("comp", version_id, PARSER_NAME, PARSER_VERSION, PARSER_CONFIG_DIGEST)
         suffix = ".tar.gz" if resolved.name.lower().endswith(".tar.gz") else Path(resolved.name).suffix.lower()
         archive_path = self.asset_root / sha256[:2] / f"{sha256}{suffix}"
-        self._archive_once(archive_path, resolved.data)
-
         blocks = (
             parse_arxiv_source(resolved.data, main_member=resolved.main_tex)
             if resolved.kind == "source_archive"
             else parse_document(resolved.data, name=resolved.name, content_type=resolved.content_type)
         )
+        # Parsing must succeed before promoting content-addressed assets. A DB
+        # failure may leave an orphan asset, but never a row referencing no file.
+        self._archive_once(archive_path, resolved.data)
         title = next((block.normalized_text for block in blocks if block.block_type == "heading"), None)
         now = utc_now()
         created_version, created_compilation = self.store.ingest_compilation(

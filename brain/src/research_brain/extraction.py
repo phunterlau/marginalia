@@ -17,7 +17,7 @@ from .store.sqlite import SQLiteStore, utc_now
 
 
 MAX_CHARS = 180_000
-PROMPT_VERSION = "evidence-cards-v2"
+PROMPT_VERSION = "evidence-cards-v3-output-cap-16384"
 
 
 @dataclass(frozen=True)
@@ -144,7 +144,7 @@ class Extractor:
         run_id, created = self.store.begin_generation(
             run_id=run_id, task=task, provider="openai", model=model, reasoning_effort=effort,
             prompt_version=PROMPT_VERSION, schema_version=schema_version, input_digest=input_digest,
-            block_ids=block_ids, request={"store": False, "chunk_count": len(chunks)}, force=force,
+            block_ids=block_ids, request={"store": False, "chunk_count": len(chunks), "max_output_tokens": 16_384}, force=force,
         )
         if not created:
             with self.store.connect() as connection:
@@ -168,6 +168,7 @@ class Extractor:
                 for retry in range(3):
                     attempt_number += 1
                     started = utc_now()
+                    self.store.dispatch_attempt(run_id=run_id, number=attempt_number, started_at=started)
                     try:
                         response = provider.extract(schema_name=schema_version, schema=schema,
                                                     instructions=instructions, evidence=chunk)
@@ -181,7 +182,7 @@ class Extractor:
                         break
                     except Exception as exc:
                         status = getattr(exc, "status_code", None)
-                        retryable = status in {429, 500, 502, 503, 504} or status is None
+                        retryable = status == 429 or isinstance(status, int) and 500 <= status <= 599
                         self.store.record_attempt(run_id=run_id, number=attempt_number, started_at=started,
                                                   outcome="retryable_error" if retryable else "fatal_error",
                                                   status_code=status,

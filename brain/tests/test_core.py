@@ -154,9 +154,9 @@ class ResearchBrainCoreTests(unittest.TestCase):
             info = tarfile.TarInfo("main.tex")
             info.size = len(contents)
             archive.addfile(info, io.BytesIO(contents))
-        with patch("research_brain.ingest._download", return_value=(source_archive.getvalue(), "https://arxiv.org/src/2506.24056", "application/gzip")) as download:
+        with patch("research_brain.ingest._arxiv_metadata", return_value=("v2", None)), patch("research_brain.ingest._download", return_value=(source_archive.getvalue(), "https://arxiv.org/src/2506.24056v2", "application/gzip")) as download:
             resolved = resolve_source("https://arxiv.org/abs/2506.24056")
-        self.assertEqual(download.call_args.args[0], "https://arxiv.org/src/2506.24056")
+        self.assertEqual(download.call_args.args[0], "https://arxiv.org/src/2506.24056v2")
         self.assertEqual(resolved.kind, "source_archive")
 
         def unavailable_then_pdf(url: str, *, timeout: float):

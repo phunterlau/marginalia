@@ -10,6 +10,7 @@ from pathlib import Path
 import re
 import sqlite3
 import struct
+import uuid
 from typing import Any, Iterator, Sequence
 
 from ..ids import stable_id
@@ -43,9 +44,10 @@ class SQLiteStore:
 
     @contextmanager
     def connect(self) -> Iterator[sqlite3.Connection]:
-        connection = sqlite3.connect(self.path)
+        connection = sqlite3.connect(self.path, timeout=5)
         connection.row_factory = sqlite3.Row
         connection.execute("PRAGMA foreign_keys = ON")
+        connection.execute("PRAGMA busy_timeout = 5000")
         try:
             yield connection
             connection.commit()
@@ -58,6 +60,7 @@ class SQLiteStore:
     def migrate(self) -> None:
         migration_root = importlib.resources.files("research_brain.store").joinpath("migrations")
         with self.connect() as connection:
+            connection.execute("PRAGMA journal_mode = WAL")
             connection.execute("CREATE TABLE IF NOT EXISTS schema_migrations (version INTEGER PRIMARY KEY, applied_at TEXT NOT NULL)")
             applied = {row[0] for row in connection.execute("SELECT version FROM schema_migrations")}
             for migration in sorted(migration_root.iterdir(), key=lambda item: item.name):
@@ -312,6 +315,7 @@ class SQLiteStore:
                          input_digest: str, block_ids: Sequence[str], request: dict[str, Any],
                          force: bool = False) -> tuple[str, bool]:
         with self.connect() as connection:
+            connection.execute("BEGIN IMMEDIATE")
             if not force:
                 cached = connection.execute(
                     """SELECT id FROM generation_runs WHERE task=? AND model=? AND reasoning_effort IS ?
@@ -320,6 +324,17 @@ class SQLiteStore:
                 ).fetchone()
                 if cached:
                     return cached["id"], False
+                active = connection.execute(
+                    "SELECT 1 FROM generation_runs WHERE task=? AND model=? AND reasoning_effort IS ? AND prompt_version=? AND schema_version=? AND input_digest=? AND status='running'",
+                    (task, model, reasoning_effort, prompt_version, schema_version, input_digest),
+                ).fetchone()
+                if active:
+                    raise RuntimeError("Generation already running or interrupted; reconcile before retry")
+            previous = connection.execute("SELECT status FROM generation_runs WHERE id=?", (run_id,)).fetchone()
+            if previous:
+                if previous[0] == "running":
+                    raise RuntimeError("Generation already running or interrupted; reconcile before retry")
+                run_id = stable_id("gen", run_id, uuid.uuid4().hex)
             connection.execute(
                 """INSERT INTO generation_runs(id, task, provider, model, reasoning_effort,
                    prompt_version, schema_version, input_digest, input_block_ids_json,
@@ -329,6 +344,14 @@ class SQLiteStore:
             )
             return run_id, True
 
+    def dispatch_attempt(self, *, run_id: str, number: int, started_at: str) -> None:
+        """Persist the uncertain state before the provider can receive a request."""
+        with self.connect() as connection:
+            connection.execute(
+                "INSERT INTO generation_attempts(id,run_id,attempt_number,started_at,outcome) VALUES (?,?,?,?, 'dispatched')",
+                (stable_id("attempt", run_id, str(number)), run_id, number, started_at),
+            )
+
     def record_attempt(self, *, run_id: str, number: int, started_at: str, outcome: str,
                        status_code: int | None = None, error: dict[str, Any] | None = None,
                        usage: dict[str, Any] | None = None) -> None:
@@ -336,7 +359,12 @@ class SQLiteStore:
             connection.execute(
                 """INSERT INTO generation_attempts(id, run_id, attempt_number, started_at,
                    completed_at, outcome, status_code, error_json, usage_json)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                   ON CONFLICT(run_id, attempt_number) DO UPDATE SET
+                   completed_at=excluded.completed_at, outcome=excluded.outcome,
+                   status_code=excluded.status_code, error_json=excluded.error_json,
+                   usage_json=excluded.usage_json
+                   WHERE generation_attempts.outcome='dispatched'""",
                 (stable_id("attempt", run_id, str(number)), run_id, number, started_at, utc_now(), outcome,
                  status_code, json.dumps(error, sort_keys=True) if error else None,
                  json.dumps(usage, sort_keys=True) if usage else None),

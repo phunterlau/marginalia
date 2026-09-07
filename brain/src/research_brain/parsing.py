@@ -264,9 +264,18 @@ def _safe_tex_members(
     *,
     max_member_bytes: int = 32 * 1024 * 1024,
     max_total_bytes: int = 128 * 1024 * 1024,
+    max_members: int = 10_000,
 ) -> dict[str, bytes]:
     """Read TeX members without extracting an untrusted archive to disk."""
     members: dict[str, bytes] = {}
+    # Bound the complete decompressed stream, including unused members/headers,
+    # before tarfile can traverse it. This also covers compressed single TeX.
+    if data.startswith(b"\x1f\x8b"):
+        import gzip
+        with gzip.GzipFile(fileobj=io.BytesIO(data)) as compressed:
+            data = compressed.read(max_total_bytes + 1)
+    if len(data) > max_total_bytes:
+        raise RuntimeError("arXiv source exceeds decompressed size limit")
     try:
         archive = tarfile.open(fileobj=io.BytesIO(data), mode="r:*")
     except tarfile.ReadError:
@@ -289,7 +298,12 @@ def _safe_tex_members(
 
     with archive:
         total_bytes = 0
-        for member in archive.getmembers():
+        for member_index, member in enumerate(archive):
+            if member_index >= max_members:
+                raise RuntimeError("arXiv source exceeds archive member limit")
+            total_bytes += member.size
+            if total_bytes > max_total_bytes:
+                raise RuntimeError("arXiv source exceeds decompressed size limit")
             if not member.isfile() or member.size > max_member_bytes:
                 continue
             member_path = Path(member.name)
@@ -297,9 +311,6 @@ def _safe_tex_members(
                 continue
             if member_path.suffix.lower() not in {".tex", ".ltx"}:
                 continue
-            total_bytes += member.size
-            if total_bytes > max_total_bytes:
-                raise ValueError("arXiv TeX members exceed the decompressed size limit")
             extracted = archive.extractfile(member)
             if extracted is not None:
                 members[member_path.as_posix()] = extracted.read(max_member_bytes + 1)

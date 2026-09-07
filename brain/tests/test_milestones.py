@@ -248,7 +248,7 @@ class MilestoneTests(unittest.TestCase):
             with self.assertRaises(RuntimeError):
                 brain.extract("methods", ingested.document_id, live=True)
         with brain.store.connect() as connection:
-            self.assertEqual(connection.execute("SELECT count(*) FROM generation_attempts").fetchone()[0], 3)
+            self.assertEqual(connection.execute("SELECT count(*) FROM generation_attempts").fetchone()[0], 1)
             self.assertEqual(connection.execute("SELECT count(*) FROM research_objects").fetchone()[0], 0)
             self.assertEqual(connection.execute("SELECT status FROM generation_runs").fetchone()[0], "failed")
 
@@ -283,7 +283,7 @@ class MilestoneTests(unittest.TestCase):
                     "SELECT prompt_version FROM generation_runs WHERE task='methods'"
                 )
             }
-        self.assertEqual(versions, {"evidence-cards-v2", "evidence-cards-next"})
+        self.assertEqual(versions, {"evidence-cards-v3-output-cap-16384", "evidence-cards-next"})
         latest = self.brain.list_research_objects(
             kinds=["method_card"], review_states=["UNREVIEWED"],
             document_id=ingested.document_id, latest_extraction_only=True,

@@ -76,6 +76,7 @@ class EmbeddingIndexer:
                 batch = records[start:start + batch_size]
                 attempt += 1
                 started = utc_now()
+                self.store.dispatch_attempt(run_id=run_id, number=attempt, started_at=started)
                 try:
                     vectors = provider.embed([item["text"] for item in batch])
                     if len(vectors) != len(batch) or any(not vector for vector in vectors):
@@ -119,6 +120,7 @@ class EmbeddingIndexer:
             input_digest=digest, block_ids=(), request={"store": False, "input_count": 1}, force=True,
         )
         started = utc_now()
+        self.store.dispatch_attempt(run_id=run_id, number=1, started_at=started)
         attempt_recorded = False
         try:
             provider = self.provider_factory(model=model) if self.provider_factory else None
