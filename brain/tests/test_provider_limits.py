@@ -1,8 +1,10 @@
 import sys
 from types import SimpleNamespace
 from unittest.mock import MagicMock
+import pytest
 
 from research_brain.openai_provider import OpenAIResponsesProvider
+from research_brain.openai_provider import ProviderResponseError
 
 
 def test_response_output_and_retry_limits(monkeypatch):
@@ -18,3 +20,15 @@ def test_response_output_and_retry_limits(monkeypatch):
     assert args["model"] == "gpt-5.6-luna"
     assert args["max_output_tokens"] == 16384
     assert args["store"] is False
+
+
+def test_invalid_json_preserves_response_id_and_usage(monkeypatch):
+    client = MagicMock()
+    usage = SimpleNamespace(model_dump=lambda: {"total_tokens": 42})
+    client.responses.create.return_value = SimpleNamespace(id="returned", output_text="invalid", usage=usage, status="completed")
+    monkeypatch.setitem(sys.modules, "openai", SimpleNamespace(OpenAI=lambda **kw: client))
+    provider = OpenAIResponsesProvider(model="gpt-5.6-luna")
+    with pytest.raises(ProviderResponseError) as error:
+        provider.extract(schema_name="fixture", schema={}, instructions="test", evidence=[])
+    assert error.value.response_payload["usage"]["total_tokens"] == 42
+    assert error.value.response_payload["response_id"] == "returned"

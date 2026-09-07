@@ -43,6 +43,25 @@ def build_parser() -> argparse.ArgumentParser:
     location.add_argument("--space", help="Explicit registered space (never searches other spaces)")
     parser.add_argument("--registry", default=os.getenv("RESEARCH_SPACE_REGISTRY", str(Path.home() / ".local/share/research-brain")))
     commands = parser.add_subparsers(dest="command", required=True)
+    absorb = commands.add_parser("absorb", help="Ingest a pinned arXiv source and prepare a paid-work approval")
+    absorb.add_argument("url")
+    absorb.add_argument("--max-calls", type=int, default=32)
+    absorb.add_argument("--max-reserved-tokens", type=int, default=2_000_000)
+    jobs = commands.add_parser("jobs", help="Scoped absorption approvals and checkpoints")
+    job_commands = jobs.add_subparsers(dest="jobs_command", required=True)
+    listing = job_commands.add_parser("list")
+    listing.add_argument("--limit", type=int, default=50)
+    listing.add_argument("--offset", type=int, default=0)
+    for action in ("show", "approve", "retry", "cancel"):
+        job = job_commands.add_parser(action)
+        job.add_argument("job_id")
+        if action == "approve":
+            job.add_argument("--plan-digest", required=True)
+            job.add_argument("--live", action="store_true", required=True)
+        if action == "retry":
+            job.add_argument("--ack-uncertain", action="store_true")
+    worker = commands.add_parser("worker", help="Run one approved job in the selected space")
+    worker.add_argument("--once", action="store_true", required=True)
     spaces = commands.add_parser("spaces", help="Trusted local storage-space administration")
     space_commands = spaces.add_subparsers(dest="spaces_command", required=True)
     space_commands.add_parser("list")
@@ -300,6 +319,24 @@ def run(args: argparse.Namespace) -> Any:
         SQLiteStore(Path(args.root) / "brain.sqlite3", initialize=False)
     else:
         args.root = args.root or "data"
+    if args.command in {"absorb", "jobs", "worker"}:
+        if not args.space:
+            raise ValueError("Absorption jobs require an explicit registered --space")
+        from .jobs import AbsorptionJobs, SpendingLimits
+        # Limits are checked before downloading a source or creating a job.
+        limits = SpendingLimits(args.max_calls, args.max_reserved_tokens) if args.command == "absorb" else None
+        jobs = AbsorptionJobs(Brain(args.root, initialize=False), args.space, create=args.command == "absorb")
+        if args.command == "absorb":
+            return jobs.absorb(args.url, limits=limits)
+        if args.command == "worker":
+            return jobs.work_once()
+        if args.jobs_command == "list":
+            return jobs.list(limit=args.limit, offset=args.offset)
+        if args.jobs_command == "approve":
+            return jobs.approve(args.job_id, args.plan_digest, live=args.live)
+        if args.jobs_command == "retry":
+            return jobs.retry(args.job_id, acknowledge_uncertain=args.ack_uncertain)
+        return getattr(jobs, args.jobs_command)(args.job_id)
     if args.command == 'compare-research':
         from .comparison import compare_research, load_comparison_spec
         load_comparison_spec(args.spec)

@@ -71,6 +71,30 @@ MATH_EXTRACTION_SCHEMA: dict[str, Any] = {
 }
 
 
+def validate_schema_shape(value: Any, schema: dict[str, Any], path: str = "output") -> None:
+    """Validate the finite JSON Schema subset used by the two extraction contracts.
+
+    The provider's strict mode is not a substitute for local validation of mocked,
+    corrupted or unexpectedly shaped responses.
+    """
+    kind = schema["type"]
+    kinds = kind if isinstance(kind, list) else [kind]
+    actual = "null" if value is None else {dict: "object", list: "array", str: "string", bool: "boolean", int: "integer", float: "number"}.get(type(value))
+    if actual not in kinds:
+        raise ValueError(f"{path}: invalid JSON type")
+    if actual == "object":
+        properties = schema["properties"]
+        if not set(schema.get("required", [])) <= value.keys():
+            raise ValueError(f"{path}: missing required fields")
+        if schema.get("additionalProperties") is False and not value.keys() <= properties.keys():
+            raise ValueError(f"{path}: unexpected fields")
+        for key, item in value.items():
+            validate_schema_shape(item, properties[key], f"{path}.{key}")
+    elif actual == "array":
+        for index, item in enumerate(value):
+            validate_schema_shape(item, schema["items"], f"{path}[{index}]")
+
+
 def _strings(value: Any, field: str) -> list[str]:
     if not isinstance(value, list) or not all(isinstance(item, str) for item in value):
         raise ValueError(f"{field} must be a list of strings")

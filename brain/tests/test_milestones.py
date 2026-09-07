@@ -283,7 +283,7 @@ class MilestoneTests(unittest.TestCase):
                     "SELECT prompt_version FROM generation_runs WHERE task='methods'"
                 )
             }
-        self.assertEqual(versions, {"evidence-cards-v3-output-cap-16384", "evidence-cards-next"})
+        self.assertEqual(versions, {"evidence-cards-v4-section-bounds-output-cap-16384", "evidence-cards-next"})
         latest = self.brain.list_research_objects(
             kinds=["method_card"], review_states=["UNREVIEWED"],
             document_id=ingested.document_id, latest_extraction_only=True,

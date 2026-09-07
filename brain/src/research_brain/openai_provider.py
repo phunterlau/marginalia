@@ -6,6 +6,13 @@ import json
 from typing import Any, Sequence
 
 
+class ProviderResponseError(ValueError):
+    """A returned refusal/incomplete/invalid payload still has auditable usage."""
+    def __init__(self, message: str, response_payload: dict[str, Any]):
+        super().__init__(message)
+        self.response_payload = response_payload
+
+
 class OpenAIResponsesProvider:
     name = "openai"
 
@@ -33,11 +40,21 @@ class OpenAIResponsesProvider:
             store=False,
             max_output_tokens=self.max_output_tokens,
         )
-        return {
+        payload = {
             "response_id": response.id,
-            "output": json.loads(response.output_text),
+            "status": getattr(response, "status", "completed"),
+            "raw_output_text": response.output_text,
             "usage": response.usage.model_dump() if response.usage else {},
         }
+        if hasattr(response, "model_dump"):
+            payload["raw_response"] = response.model_dump(mode="json")
+        if payload["status"] != "completed":
+            raise ProviderResponseError("Provider returned an incomplete response", payload)
+        try:
+            payload["output"] = json.loads(response.output_text)
+        except (ValueError, TypeError) as exc:
+            raise ProviderResponseError("Provider returned invalid JSON or refused extraction", payload) from exc
+        return payload
 
 
 class OpenAIEmbeddingProvider:
@@ -49,8 +66,11 @@ class OpenAIEmbeddingProvider:
         except ImportError as exc:
             raise RuntimeError("Live embeddings require: pip install 'research-brain[openai]'") from exc
         self.model = model
-        self.client = OpenAI(max_retries=0)
+        self.client = OpenAI(max_retries=0, timeout=120)
+        self.last_metadata: dict[str, Any] = {}
 
     def embed(self, texts: Sequence[str]) -> list[list[float]]:
         response = self.client.embeddings.create(model=self.model, input=list(texts), encoding_format="float")
+        self.last_metadata = {"usage": response.usage.model_dump() if response.usage else {},
+                              "response_id": getattr(response, "_request_id", None)}
         return [item.embedding for item in response.data]

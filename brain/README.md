@@ -1,5 +1,12 @@
 # Research Brain
 
+## Approved paper absorption
+
+The [scoped absorption CLI](docs/absorption.md) turns an arXiv URL into source
+evidence and an explicit paid-work approval, with durable task checkpoints and
+call/token admission budgets. Backend acceptance remains in progress; see the
+guide's validation boundaries before unattended use.
+
 ## Worked research example
 
 [Forward-only interpretability pipeline](examples/interpretability-pipeline/README.md)

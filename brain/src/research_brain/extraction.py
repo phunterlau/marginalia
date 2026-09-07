@@ -12,12 +12,12 @@ from typing import Any, Callable
 from .ids import stable_id
 from .models import MathCardV1, MethodCardV1
 from .schemas import (MATH_EXTRACTION_SCHEMA, METHOD_EXTRACTION_SCHEMA,
-                      validate_math_cards, validate_method_cards)
+                      validate_math_cards, validate_method_cards, validate_schema_shape)
 from .store.sqlite import SQLiteStore, utc_now
 
 
 MAX_CHARS = 180_000
-PROMPT_VERSION = "evidence-cards-v3-output-cap-16384"
+PROMPT_VERSION = "evidence-cards-v4-section-bounds-output-cap-16384"
 
 
 @dataclass(frozen=True)
@@ -52,22 +52,62 @@ def _evidence_record(block: dict[str, Any]) -> dict[str, Any]:
              "line_start", "line_end")}
 
 
-def _method_chunks(blocks: list[dict[str, Any]]) -> list[list[dict[str, Any]]]:
+def _serialized_size(value: Any) -> int:
+    return len(json.dumps(value, ensure_ascii=False))
+
+
+def _split_prose(record: dict[str, Any], maximum: int) -> list[dict[str, Any]]:
+    if _serialized_size(record) <= maximum:
+        return [record]
+    if record.get("raw_latex") or record.get("block_type") == "equation":
+        raise ValueError(f"Canonical equation exceeds extraction input limit: {record['block_id']}")
+    raw = record.get("raw_text") or ""
+    result = []
+    offset = 0
+    while offset < len(raw):
+        lo, hi = 1, len(raw) - offset
+        best = None
+        while lo <= hi:
+            count = (lo + hi) // 2
+            excerpt = {**record, "raw_text": raw[offset:offset + count],
+                       "excerpt_char_start": offset, "excerpt_char_end": offset + count}
+            if _serialized_size(excerpt) <= maximum:
+                best = excerpt
+                lo = count + 1
+            else:
+                hi = count - 1
+        if best is None:
+            raise ValueError("Evidence locator exceeds extraction input limit")
+        result.append(best)
+        offset = best["excerpt_char_end"]
+    return result
+
+
+def _pack_records(records: list[dict[str, Any]]) -> list[list[dict[str, Any]]]:
     chunks: list[list[dict[str, Any]]] = []
     current: list[dict[str, Any]] = []
-    size = 0
-    for block in blocks:
-        record = _evidence_record(block)
-        record["block_id"] = record.pop("id")
-        item_size = len(record.get("raw_text") or "") + 256
-        if current and size + item_size > MAX_CHARS:
+    for record in records:
+        if _serialized_size([record]) > MAX_CHARS:
+            raise ValueError("Evidence bundle exceeds extraction input limit")
+        if current and (record.get("section_path") != current[-1].get("section_path")
+                        or _serialized_size([*current, record]) > MAX_CHARS):
             chunks.append(current)
-            current, size = [], 0
+            current = []
         current.append(record)
-        size += item_size
     if current:
         chunks.append(current)
     return chunks
+
+
+def _method_chunks(blocks: list[dict[str, Any]]) -> list[list[dict[str, Any]]]:
+    records = []
+    for block in blocks:
+        if block["block_type"] == "paragraph" and not any(line.strip() and not line.lstrip().startswith("%") for line in block["raw_text"].splitlines()):
+            continue
+        record = _evidence_record(block)
+        record["block_id"] = record.pop("id")
+        records.extend(_split_prose(record, MAX_CHARS - 2))
+    return [chunk for chunk in _pack_records(records) if any(r["block_type"] != "heading" for r in chunk)]
 
 
 def _math_chunks(blocks: list[dict[str, Any]]) -> list[list[dict[str, Any]]]:
@@ -95,20 +135,19 @@ def _math_chunks(blocks: list[dict[str, Any]]) -> list[list[dict[str, Any]]]:
             context_record = _evidence_record(item)
             context_record["block_id"] = context_record.pop("id")
             record["context"].append(context_record)
-        records.append(record)
-    chunks: list[list[dict[str, Any]]] = []
-    current: list[dict[str, Any]] = []
-    size = 0
-    for record in records:
-        item_size = len(json.dumps(record, ensure_ascii=False))
-        if current and size + item_size > MAX_CHARS:
-            chunks.append(current)
-            current, size = [], 0
-        current.append(record)
-        size += item_size
-    if current:
-        chunks.append(current)
-    return chunks
+        contexts = record.pop("context")
+        bundle = {**record, "context": []}
+        available = MAX_CHARS - _serialized_size([bundle]) - 4
+        if available < 256:
+            raise ValueError(f"Canonical equation exceeds extraction input limit: {record['block_id']}")
+        for context_record in contexts:
+            for part in _split_prose(context_record, available):
+                if _serialized_size([{**bundle, "context": [*bundle["context"], part]}]) > MAX_CHARS:
+                    records.append(bundle)
+                    bundle = {**record, "context": []}
+                bundle["context"].append(part)
+        records.append(bundle)
+    return _pack_records(records)
 
 
 class Extractor:
@@ -117,7 +156,8 @@ class Extractor:
         self.provider_factory = provider_factory
 
     def extract(self, task: str, document_id: str, *, compilation_id: str | None = None,
-                live: bool = False, force: bool = False) -> ExtractionResult:
+                live: bool = False, force: bool = False, model: str | None = None,
+                reasoning_effort: str | None = None, run_callback: Callable[[str], None] | None = None) -> ExtractionResult:
         if task not in {"methods", "math"}:
             raise ValueError("task must be methods or math")
         blocks = self.store.get_blocks(document_id, compilation_id=compilation_id)
@@ -125,8 +165,8 @@ class Extractor:
             raise LookupError(f"No blocks found for document: {document_id}")
         compilation_id = blocks[0]["compilation_id"]
         chunks = _method_chunks(blocks) if task == "methods" else _math_chunks(blocks)
-        model = os.getenv("RESEARCH_EXTRACT_MODEL", "gpt-5.6-luna")
-        effort = os.getenv("RESEARCH_REASONING_EFFORT", "medium")
+        model = model or os.getenv("RESEARCH_EXTRACT_MODEL", "gpt-5.6-luna")
+        effort = reasoning_effort or os.getenv("RESEARCH_REASONING_EFFORT", "medium")
         schema_version = "MethodCardV1" if task == "methods" else "MathCardV1"
         block_ids = tuple(block["id"] for block in blocks)
         plan = ExtractionPlan(task, document_id, compilation_id, model, effort, schema_version,
@@ -146,6 +186,8 @@ class Extractor:
             prompt_version=PROMPT_VERSION, schema_version=schema_version, input_digest=input_digest,
             block_ids=block_ids, request={"store": False, "chunk_count": len(chunks), "max_output_tokens": 16_384}, force=force,
         )
+        if run_callback:
+            run_callback(run_id)
         if not created:
             with self.store.connect() as connection:
                 ids = tuple(row[0] for row in connection.execute(
@@ -181,18 +223,34 @@ class Extractor:
                                                   outcome="success", usage=response.get("usage", {}))
                         break
                     except Exception as exc:
+                        returned = getattr(exc, "response_payload", None)
+                        if returned is not None:
+                            outputs.append(returned)
+                            response_ids.append(returned.get("response_id", ""))
+                            for key, value in returned.get("usage", {}).items():
+                                if isinstance(value, int):
+                                    total_usage[key] = total_usage.get(key, 0) + value
                         status = getattr(exc, "status_code", None)
                         retryable = status == 429 or isinstance(status, int) and 500 <= status <= 599
                         self.store.record_attempt(run_id=run_id, number=attempt_number, started_at=started,
                                                   outcome="retryable_error" if retryable else "fatal_error",
                                                   status_code=status,
+                                                  usage=returned.get("usage", {}) if returned else None,
                                                   error={"type": type(exc).__name__, "message": str(exc)})
                         if retry == 2 or not retryable:
                             raise
                         time.sleep(2 ** retry)
             merged_cards: list[dict[str, Any]] = []
             seen_cards: set[tuple[str, tuple[str, ...]]] = set()
+            block_map = {block["id"]: block for block in blocks}
             for output in outputs:
+                # Validate each response before merging: malformed chunks must
+                # not disappear into a seemingly valid empty or partial result.
+                validate_schema_shape(output, schema)
+                if task == "methods":
+                    validate_method_cards(output, set(block_map))
+                else:
+                    validate_math_cards(output, block_map)
                 for card in output.get("cards", []):
                     evidence_ids = tuple(sorted(
                         ref.get("block_id", "") for ref in card.get("evidence", [])
@@ -219,9 +277,8 @@ class Extractor:
                     kind = "math_card"
                 objects.append({"kind": kind, "title": card.name, "body": body,
                                 "structured": {"schema": schema_version, **structured}, "evidence": evidence})
-            created_objects = self.store.create_extracted_objects(objects, run_id=run_id)
-            self.store.finish_generation(run_id, status="complete", response_id=json.dumps(response_ids),
-                                         output=merged, usage=total_usage)
+            created_objects = self.store.create_extracted_objects(objects, run_id=run_id,
+                completion={"response_ids": response_ids, "output": merged, "usage": total_usage})
             return ExtractionResult(plan, run_id, False, tuple(item.id for item in created_objects))
         except Exception as exc:
             self.store.finish_generation(run_id, status="failed",

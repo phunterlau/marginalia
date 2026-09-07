@@ -263,7 +263,7 @@ class SQLiteStore:
             rows = connection.execute(
                 """SELECT b.*, v.version_label FROM document_blocks b
                    JOIN document_versions v ON v.id = b.document_version_id
-                   WHERE b.compilation_id = ? ORDER BY b.ordinal""", (compilation_id,),
+                   WHERE b.compilation_id = ? AND v.document_id=? ORDER BY b.ordinal""", (compilation_id, document_id),
             ).fetchall()
             result = []
             for row in rows:
@@ -382,7 +382,8 @@ class SQLiteStore:
                  json.dumps(usage, sort_keys=True) if usage else None, utc_now(), run_id),
             )
 
-    def create_extracted_objects(self, objects: Sequence[dict[str, Any]], *, run_id: str) -> list[ResearchObject]:
+    def create_extracted_objects(self, objects: Sequence[dict[str, Any]], *, run_id: str,
+                                 completion: dict[str, Any] | None = None) -> list[ResearchObject]:
         now = utc_now()
         ids: list[str] = []
         with self.connect() as connection:
@@ -404,22 +405,31 @@ class SQLiteStore:
                 self._append_event(connection, "object_created", object_id,
                                    {"kind": item["kind"], "origin": "AGENT_EXTRACTED",
                                     "review_state": "UNREVIEWED", "extraction_run_id": run_id}, "openai")
+            if completion is not None:
+                connection.execute(
+                    "UPDATE generation_runs SET status='complete', response_id=?,raw_output_json=?,usage_json=?,completed_at=? WHERE id=? AND status='running'",
+                    (json.dumps(completion["response_ids"]), json.dumps(completion["output"]),
+                     json.dumps(completion["usage"]), now, run_id),
+                )
         return [self.get_object(item) for item in ids]  # type: ignore[misc]
 
-    def embedding_targets(self, document_id: str | None = None) -> list[dict[str, str]]:
+    def embedding_targets(self, document_id: str | None = None, *, compilation_id: str | None = None,
+                          object_ids: Sequence[str] | None = None) -> list[dict[str, str]]:
         targets: list[dict[str, str]] = []
         with self.connect() as connection:
             block_sql = """SELECT b.id, b.block_type, b.section_path, b.normalized_text, b.raw_latex
                            FROM document_blocks b JOIN document_versions v ON v.id=b.document_version_id
-                           WHERE b.compilation_id = (
+                           WHERE """
+            block_sql += "b.compilation_id=?" if compilation_id else """b.compilation_id = (
                                SELECT c.id FROM document_compilations c
                                WHERE c.document_version_id=v.id AND c.status='complete'
                                ORDER BY c.created_at DESC LIMIT 1
                            )"""
-            params: tuple[Any, ...] = ()
+            params: tuple[Any, ...] = (compilation_id,) if compilation_id else ()
             if document_id:
                 block_sql += " AND v.document_id=?"
-                params = (document_id,)
+                params += (document_id,)
+            block_sql += " ORDER BY b.compilation_id, b.ordinal, b.id"
             for row in connection.execute(block_sql, params):
                 if row["block_type"] not in {"paragraph", "equation"}:
                     continue
@@ -429,7 +439,13 @@ class SQLiteStore:
                 targets.append({"object_type": "document_block", "object_id": row["id"],
                                 "representation_type": "semantic", "text": text_value})
             object_sql = "SELECT id, title, body, structured_json FROM research_objects"
-            for row in connection.execute(object_sql):
+            object_params: tuple[Any, ...] = ()
+            if document_id:
+                object_sql += " WHERE id IN (SELECT e.object_id FROM evidence_links e JOIN document_blocks b ON b.id=e.block_id JOIN document_versions v ON v.id=b.document_version_id WHERE v.document_id=?)"
+                object_params = (document_id,)
+            for row in connection.execute(object_sql + " ORDER BY id", object_params):
+                if object_ids is not None and row["id"] not in object_ids:
+                    continue
                 targets.append({"object_type": "research_object", "object_id": row["id"],
                                 "representation_type": "semantic",
                                 "text": f"{row['title'] or ''}\n{row['body']}\n{row['structured_json']}"})
