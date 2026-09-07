@@ -476,7 +476,8 @@ class SQLiteStore:
         return [item for item in targets
                 if (item["object_type"], item["object_id"], item["representation_type"]) not in existing]
 
-    def save_embeddings(self, records: Sequence[dict[str, Any]], *, model: str, version: str) -> int:
+    def save_embeddings(self, records: Sequence[dict[str, Any]], *, model: str, version: str,
+                        completion: dict[str, Any] | None = None) -> int:
         count = 0
         with self.connect() as connection:
             for record in records:
@@ -494,6 +495,9 @@ class SQLiteStore:
                      utc_now(), len(vector), record["input_digest"]),
                 )
                 count += cursor.rowcount
+            if completion is not None:
+                connection.execute("UPDATE generation_runs SET status='complete',raw_output_json=?,usage_json=?,completed_at=? WHERE id=? AND status='running'",
+                                   (json.dumps({"representation_count": count}), json.dumps(completion["usage"]), utc_now(), completion["run_id"]))
         return count
 
     def cached_embedding(

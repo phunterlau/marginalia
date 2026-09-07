@@ -6,10 +6,13 @@ from dataclasses import dataclass
 import hashlib
 import json
 import os
+import math
 from typing import Any, Callable
 
 from .ids import stable_id
 from .store.sqlite import SQLiteStore, utc_now
+
+EMBEDDING_VERSION = "semantic-v1"
 
 
 @dataclass(frozen=True)
@@ -44,7 +47,7 @@ class EmbeddingIndexer:
             raise ValueError("batch_size must be between 1 and 64")
         document_id = None if target == "all" else target
         model = model or os.getenv("RESEARCH_EMBED_MODEL", "text-embedding-3-small")
-        version = "semantic-v1"
+        version = EMBEDDING_VERSION
         records = self.store.embedding_targets(document_id, compilation_id=compilation_id, object_ids=object_ids)
         if not force:
             records = self.store.unembedded_targets(records, model=model, version=version)
@@ -79,6 +82,7 @@ class EmbeddingIndexer:
             output: list[dict[str, Any]] = []
             total_usage: dict[str, int] = {}
             attempt = 0
+            dimension = None
             for start in range(0, len(records), batch_size):
                 batch = records[start:start + batch_size]
                 attempt += 1
@@ -88,6 +92,11 @@ class EmbeddingIndexer:
                     vectors = provider.embed([item["text"] for item in batch])
                     if len(vectors) != len(batch) or any(not vector for vector in vectors):
                         raise ValueError("embedding provider returned the wrong number of vectors")
+                    for vector in vectors:
+                        if dimension is None:
+                            dimension = len(vector)
+                        if len(vector) != dimension or any(type(v) not in (int, float) or not math.isfinite(v) or abs(v) > 3.4028234e38 for v in vector):
+                            raise ValueError("embedding provider returned invalid dimensions or non-finite float32 values")
                 except Exception as exc:
                     self.store.record_attempt(run_id=run_id, number=attempt, started_at=started,
                                               outcome="fatal_error", status_code=getattr(exc, "status_code", None),
@@ -101,8 +110,8 @@ class EmbeddingIndexer:
                 for item, vector in zip(batch, vectors, strict=True):
                     output.append({**item, "vector": vector,
                                    "input_digest": hashlib.sha256(item["text"].encode()).hexdigest()})
-            inserted = self.store.save_embeddings(output, model=model, version=version)
-            self.store.finish_generation(run_id, status="complete", output={"representation_count": inserted}, usage=total_usage)
+            inserted = self.store.save_embeddings(output, model=model, version=version,
+                                                  completion={"run_id": run_id, "usage": total_usage})
             return EmbeddingResult(plan, run_id, inserted, False)
         except Exception as exc:
             self.store.finish_generation(run_id, status="failed",

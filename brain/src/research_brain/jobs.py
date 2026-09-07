@@ -20,6 +20,7 @@ import uuid
 
 from .brain import Brain
 from .embeddings import EmbeddingIndexer
+from . import embeddings
 from . import extraction
 from .ingest import arxiv_identity
 from .spaces import identifier
@@ -136,6 +137,7 @@ class AbsorptionJobs:
             "tasks": tasks + ["embeddings"], "previews": previews,
             "provider": "openai", "extract_model": model, "reasoning_effort": effort,
             "embed_model": os.getenv("RESEARCH_EMBED_MODEL", "text-embedding-3-small"),
+            "embedding_version": embeddings.EMBEDDING_VERSION,
             "prompt_version": extraction.PROMPT_VERSION, "store": False,
             "extraction_contract_digest": digest([extraction.METHOD_EXTRACTION_SCHEMA, extraction.MATH_EXTRACTION_SCHEMA,
                                                    extraction.METHOD_INSTRUCTIONS, extraction.MATH_INSTRUCTIONS]),
@@ -305,6 +307,8 @@ class AbsorptionJobs:
             try:
                 if digest(plan) != job["plan_digest"] or plan["space_id"] != self.space_id or plan["prompt_version"] != extraction.PROMPT_VERSION:
                     raise JobStopped("Plan configuration changed; new approval required")
+                if plan.get("embedding_version") != embeddings.EMBEDDING_VERSION:
+                    raise JobStopped("Embedding representation changed; new approval required")
                 if os.getenv("OPENAI_BASE_URL", "https://api.openai.com/v1").rstrip("/") != "https://api.openai.com/v1":
                     raise JobStopped("Provider endpoint changed; refusing dispatch")
                 if plan["extraction_contract_digest"] != digest([extraction.METHOD_EXTRACTION_SCHEMA, extraction.MATH_EXTRACTION_SCHEMA,
