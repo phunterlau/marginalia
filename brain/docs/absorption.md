@@ -49,6 +49,12 @@ failure or retry. Missing limits never mean unlimited spending. Every 429/5xx
 retry consumes another reservation; at most two such retries occur per extraction
 chunk. Unknown transport outcomes are not automatically replayed.
 
+Each returned extraction response is preserved with its usage and validated
+before the next section is dispatched. Invalid schema or evidence stops the task
+without inserting any of its cards, including valid cards from earlier sections.
+The ledger's successful provider attempts describe completed API requests, not
+successful scientific extraction; inspect the generation/task status as well.
+
 The job database uses WAL, foreign keys and atomic claims. An OS worker lock
 allows one foreground worker per space; it is released on process death. On the
 next worker invocation, interrupted jobs become `NEEDS_ATTENTION`, not queued.

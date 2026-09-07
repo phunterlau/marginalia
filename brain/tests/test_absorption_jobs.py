@@ -183,6 +183,41 @@ def test_invalid_response_does_not_create_partial_cards(jobs):
         assert json.loads(db.execute("SELECT response_json FROM calls").fetchone()[0])["usage"]["total_tokens"] == 5
 
 
+@pytest.mark.parametrize("invalid", ["shape", "evidence"])
+def test_invalid_chunk_stops_later_spending_and_preserves_ledger(jobs, monkeypatch, invalid):
+    from research_brain import extraction
+    original = extraction._method_chunks
+    monkeypatch.setattr(extraction, "_method_chunks", lambda blocks: original(blocks) * 3)
+
+    class InvalidSecond(FakeExtractionProvider):
+        calls = 0
+
+        def extract(self, **kwargs):
+            type(self).calls += 1
+            response = super().extract(**kwargs)
+            if self.calls == 2:
+                if invalid == "shape":
+                    response["output"] = {"unexpected": []}
+                else:
+                    response["output"]["cards"][0]["mechanism"] += " [block_truncated]"
+            return response
+
+    job = enqueue(jobs)
+    approve(jobs, job)
+    result = work(jobs, factory=InvalidSecond)
+    assert result["status"] == "FAILED"
+    assert InvalidSecond.calls == result["calls_reserved"] == 2
+    assert all(step["result_json"] is None for step in result["steps"])
+    with jobs.connect() as db:
+        assert db.execute("SELECT COUNT(*) FROM calls WHERE status='RETURNED' AND response_json IS NOT NULL").fetchone()[0] == 2
+    with jobs.brain.store.connect() as db:
+        assert db.execute("SELECT COUNT(*) FROM research_objects").fetchone()[0] == 0
+        run = db.execute("SELECT status,raw_output_json,usage_json FROM generation_runs").fetchone()
+        assert run[0] == "failed"
+        assert len(json.loads(run[1])["chunk_outputs"]) == 2
+        assert json.loads(run[2])["input_tokens"] == 20
+
+
 def test_real_process_kill_leaves_dispatch_for_explicit_recovery(jobs):
     job = enqueue(jobs)
     approve(jobs, job)

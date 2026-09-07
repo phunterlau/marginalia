@@ -202,6 +202,7 @@ class Extractor:
         response_ids: list[str] = []
         total_usage: dict[str, int] = {}
         attempt_number = 0
+        block_map = {block["id"]: block for block in blocks}
         try:
             if self.provider_factory:
                 provider = self.provider_factory(model=model, reasoning_effort=effort)
@@ -242,6 +243,14 @@ class Extractor:
                         if retry == 2 or not retryable:
                             raise
                         time.sleep(2 ** retry)
+                # A returned response is ledgered above before local validation.
+                # Stop before spending on later chunks when this one is invalid;
+                # retain all outputs but commit no cards from a partial task.
+                validate_schema_shape(outputs[-1], schema)
+                if task == "methods":
+                    validate_method_cards(outputs[-1], set(block_map))
+                else:
+                    validate_math_cards(outputs[-1], block_map)
             merged_cards: list[dict[str, Any]] = []
             seen_cards: set[tuple[str, tuple[str, ...]]] = set()
             block_map = {block["id"]: block for block in blocks}
