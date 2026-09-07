@@ -20,10 +20,11 @@ from .store import SQLiteStore
 
 class Brain:
     def __init__(self, root: str | Path = "data", *, extraction_provider_factory: Any = None,
-                 embedding_provider_factory: Any = None):
+                 embedding_provider_factory: Any = None, initialize: bool = True):
         self.root = Path(root).expanduser().resolve()
-        self.root.mkdir(parents=True, exist_ok=True)
-        self.store = SQLiteStore(self.root / "brain.sqlite3")
+        if initialize:
+            self.root.mkdir(parents=True, exist_ok=True)
+        self.store = SQLiteStore(self.root / "brain.sqlite3", initialize=initialize)
         self.ingestor = Ingestor(self.store, self.root / "assets")
         self.extractor = Extractor(self.store, extraction_provider_factory)
         self.embedding_indexer = EmbeddingIndexer(self.store, embedding_provider_factory)

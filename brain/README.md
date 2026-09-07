@@ -382,3 +382,7 @@ mismatch handling.
 Canonical state lives in `data/brain.sqlite3` and `data/assets/`. Model output
 never becomes source evidence. An accepted agent card retains
 `origin=AGENT_EXTRACTED`; its review decision is a separate append-only event.
+# Named personal and shared storage
+
+See [named spaces](docs/spaces.md) for explicit personal-corpus registration,
+empty shared spaces, and the scope-validation Python contract.

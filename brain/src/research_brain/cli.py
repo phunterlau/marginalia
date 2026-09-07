@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 from dataclasses import asdict, is_dataclass
 import json
+import os
 from pathlib import Path
 import sys
 from typing import Any
@@ -37,8 +38,25 @@ def _json_list(value: str, *, label: str) -> list[str]:
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="research", description="Evidence-first research ledger")
-    parser.add_argument("--root", default="data", help="Brain data directory (default: ./data)")
+    location = parser.add_mutually_exclusive_group()
+    location.add_argument("--root", help="Brain data directory (default: ./data)")
+    location.add_argument("--space", help="Explicit registered space (never searches other spaces)")
+    parser.add_argument("--registry", default=os.getenv("RESEARCH_SPACE_REGISTRY", str(Path.home() / ".local/share/research-brain")))
     commands = parser.add_subparsers(dest="command", required=True)
+    spaces = commands.add_parser("spaces", help="Trusted local storage-space administration")
+    space_commands = spaces.add_subparsers(dest="spaces_command", required=True)
+    space_commands.add_parser("list")
+    for action in ("create", "register"):
+        cmd = space_commands.add_parser(action)
+        cmd.add_argument("space_id")
+        cmd.add_argument("--owner", required=True)
+        cmd.add_argument("--kind", choices=("personal", "shared"), required=True)
+        cmd.add_argument("--data-root", type=Path, required=True)
+        cmd.add_argument("--label")
+    member = space_commands.add_parser("membership")
+    member.add_argument("space_id")
+    member.add_argument("principal")
+    member.add_argument("--role", choices=("member", "maintainer", "revoke"), required=True)
     commands.add_parser("init", help="Create/migrate the Brain database")
     reviewer = commands.add_parser("review-ui", help="Open the local memory reviewer")
     reviewer.add_argument("--port", type=int, default=8765)
@@ -258,6 +276,30 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def run(args: argparse.Namespace) -> Any:
+    if args.command == "spaces":
+        from .spaces import SpaceRegistry, identifier
+        registry = SpaceRegistry(args.registry, create=args.spaces_command in {"create", "register"})
+        if args.spaces_command == "list":
+            return registry.list()
+        if args.spaces_command == "membership":
+            registry.set_membership(args.space_id, args.principal, None if args.role == "revoke" else args.role)
+            return {"space_id": args.space_id, "principal": args.principal, "role": args.role}
+        identifier(args.space_id)
+        identifier(args.owner)
+        if args.spaces_command == "create":
+            # Never initialize an existing directory or change a legacy corpus implicitly.
+            args.data_root.mkdir(parents=True, exist_ok=False)
+            Brain(args.data_root)
+        return registry.register(args.space_id, kind=args.kind, owner=args.owner,
+                                 root=args.data_root, label=args.label)
+    if args.space:
+        from .spaces import SpaceRegistry
+        registry = SpaceRegistry(args.registry)
+        args.root = registry.get(args.space)["root"]
+        from .store import SQLiteStore
+        SQLiteStore(Path(args.root) / "brain.sqlite3", initialize=False)
+    else:
+        args.root = args.root or "data"
     if args.command == 'compare-research':
         from .comparison import compare_research, load_comparison_spec
         load_comparison_spec(args.spec)
@@ -295,7 +337,7 @@ def run(args: argparse.Namespace) -> Any:
     if args.command == "review-ui":
         from .reviewer import serve
         return serve(Path(args.root), args.port)
-    brain = Brain(Path(args.root))
+    brain = Brain(Path(args.root), initialize=not bool(args.space))
     if args.command == "init":
         return {"database": str(brain.store.path), "status": "ready"}
     if args.command == "ingest":
