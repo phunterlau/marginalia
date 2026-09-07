@@ -16,15 +16,17 @@ from urllib.error import HTTPError
 
 from .ids import stable_id
 from .models import IngestResult
+from .models import ParsedBlock
+from .parse_worker import compile_source
 from .parsing import parse_arxiv_source, parse_document
 from .store import SQLiteStore
 from .store.sqlite import utc_now
 
 
 PARSER_NAME = "structural"
-PARSER_VERSION = "structural-v4"
+PARSER_VERSION = "structural-v5"
 PARSER_CONFIG_DIGEST = hashlib.sha256(
-    b"explicit-or-comment-aware-main-tex;in-place-reachable-tex-includes;decoded-char-spans;v4"
+    b"comment-masked-includes;inherited-sections;repeated-includes;source-diagnostics;subprocess-120s;v5"
 ).hexdigest()
 _ARXIV_ID = re.compile(r"/(?:abs|pdf|html|src)/(\d{4}\.\d{4,5}|[a-z-]+(?:\.[A-Z]{2})?/\d{7})(v[1-9]\d*)?(?:\.pdf)?", re.IGNORECASE)
 MAX_DOWNLOAD_BYTES = 50 * 1024 * 1024
@@ -48,6 +50,8 @@ class ResolvedSource:
     resolution_state: str = "resolved"
     license_uri: str | None = None
     main_tex: str | None = None
+    parsed_blocks: tuple[ParsedBlock, ...] | None = None
+    parse_diagnostics: dict | None = None
 
 
 def canonicalize_url(url: str) -> str:
@@ -134,6 +138,7 @@ def resolve_source(source: str | Path, *, timeout: float = 30.0) -> ResolvedSour
     source_text = str(source)
     if source_text.startswith(("http://", "https://")):
         requested_url = canonicalize_url(source_text)
+        parsed_blocks, parse_diagnostics = None, None
         arxiv = arxiv_identity(requested_url)
         if arxiv:
             base_id, version = arxiv
@@ -152,7 +157,8 @@ def resolve_source(source: str | Path, *, timeout: float = 30.0) -> ResolvedSour
                 if not _looks_like_tex_source(data, content_type):
                     raise ValueError("arXiv source endpoint did not return a TeX source package")
                 # Validate now so malformed/non-TeX payloads use the PDF fallback.
-                parse_arxiv_source(data)
+                compiled, parse_diagnostics = compile_source(data, name="source.tar.gz", kind="source_archive", content_type=content_type)
+                parsed_blocks = tuple(compiled)
                 name = f"{base_id}{requested_version}.tar.gz"
                 kind = "source_archive"
             except HTTPError as exc:
@@ -183,7 +189,8 @@ def resolve_source(source: str | Path, *, timeout: float = 30.0) -> ResolvedSour
             license_uri = None
             resolution_state = "resolved"
         return ResolvedSource(data, final_url, name, content_type, kind, canonical_document_uri,
-                              version_label, external_ids, requested_url, resolution_state, license_uri)
+                              version_label, external_ids, requested_url, resolution_state, license_uri,
+                              parsed_blocks=parsed_blocks, parse_diagnostics=parse_diagnostics)
 
     path = Path(source_text).expanduser().resolve(strict=True)
     data = path.read_bytes()
@@ -241,11 +248,11 @@ class Ingestor:
         compilation_id = stable_id("comp", version_id, PARSER_NAME, PARSER_VERSION, PARSER_CONFIG_DIGEST)
         suffix = ".tar.gz" if resolved.name.lower().endswith(".tar.gz") else Path(resolved.name).suffix.lower()
         archive_path = self.asset_root / sha256[:2] / f"{sha256}{suffix}"
-        blocks = (
-            parse_arxiv_source(resolved.data, main_member=resolved.main_tex)
-            if resolved.kind == "source_archive"
-            else parse_document(resolved.data, name=resolved.name, content_type=resolved.content_type)
-        )
+        if resolved.parsed_blocks is not None:
+            blocks, diagnostics = list(resolved.parsed_blocks), resolved.parse_diagnostics or {}
+        else:
+            blocks, diagnostics = compile_source(resolved.data, name=resolved.name, kind=resolved.kind,
+                                                 main_member=resolved.main_tex, content_type=resolved.content_type)
         # Parsing must succeed before promoting content-addressed assets. A DB
         # failure may leave an orphan asset, but never a row referencing no file.
         self._archive_once(archive_path, resolved.data)
@@ -262,7 +269,7 @@ class Ingestor:
                      "resolution_state": resolved.resolution_state, "created_at": now},
             compilation={"id": compilation_id, "parser_name": PARSER_NAME,
                          "parser_version": PARSER_VERSION, "config_digest": PARSER_CONFIG_DIGEST,
-                         "diagnostics": {"source_kind": resolved.kind, "main_tex": resolved.main_tex},
+                         "diagnostics": diagnostics,
                          "created_at": now},
             blocks=blocks,
         )

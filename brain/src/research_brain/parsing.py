@@ -20,6 +20,9 @@ _DISPLAY_END = {
 }
 _TEX_SECTION = re.compile(r"^\s*\\(title|part|chapter|section|subsection|subsubsection)\*?\{(.+)\}\s*$")
 _TEX_INPUT = re.compile(r"\\(?:input|include)\s*\{([^}]+)\}")
+MAX_PARSED_BLOCKS = 100_000
+MAX_INCLUDE_EXPANSIONS = 10_000
+MAX_EXPANDED_BYTES = 128 * 1024 * 1024
 
 
 def _normalize(text: str) -> str:
@@ -47,9 +50,9 @@ def _flush_paragraph(
     blocks: list[ParsedBlock],
     section: str | None,
 ) -> None:
-    raw = "\n".join(part[0] for part in parts).strip()
     start = parts[0][1] if parts else 0
     end = parts[-1][2] if parts else 0
+    raw = text[start:end].strip()
     parts.clear()
     if raw and not re.fullmatch(r"(?:-{3,}|\*{3,}|_{3,})", raw):
         blocks.append(ParsedBlock("paragraph", raw, _normalize(raw), section_path=section,
@@ -65,18 +68,26 @@ def parse_text(text: str, *, markdown: bool = False, tex: bool = False) -> list[
 
     offset = 0
     for raw_line in text.splitlines(keepends=True):
+        if len(blocks) > MAX_PARSED_BLOCKS:
+            raise RuntimeError("Structural block count exceeds resource limit")
         line = raw_line.rstrip("\r\n")
         line_start, line_end = offset, offset + len(raw_line)
         offset = line_end
         if equation is not None:
             equation.append((line, line_start, line_end))
             if equation_end and equation_end.search(line):
-                raw = "\n".join(item[0] for item in equation).strip()
+                raw = text[equation[0][1]:equation[-1][2]].strip()
                 meta = _span_metadata(text, equation[0][1], equation[-1][2])
                 blocks.append(ParsedBlock("equation", raw, _normalize(raw), section_path=section,
                                           raw_latex=raw, metadata=meta))
                 equation = None
                 equation_end = None
+            continue
+
+        if tex and line.lstrip().startswith("%"):
+            _flush_paragraph(text, paragraph, blocks, section)
+            blocks.append(ParsedBlock("comment", line.strip(), "", section_path=section,
+                                      metadata=_span_metadata(text, line_start, line_end)))
             continue
 
         tex_heading = _TEX_SECTION.match(line) if tex else None
@@ -118,7 +129,7 @@ def parse_text(text: str, *, markdown: bool = False, tex: bool = False) -> list[
             paragraph.append((line, line_start, line_end))
 
     if equation is not None:
-        raw = "\n".join(item[0] for item in equation).strip()
+        raw = text[equation[0][1]:equation[-1][2]].strip()
         meta = _span_metadata(text, equation[0][1], equation[-1][2])
         blocks.append(
             ParsedBlock(
@@ -313,6 +324,8 @@ def _safe_tex_members(
                 continue
             extracted = archive.extractfile(member)
             if extracted is not None:
+                if member_path.as_posix() in members:
+                    raise ValueError("Ambiguous duplicate TeX archive member")
                 members[member_path.as_posix()] = extracted.read(max_member_bytes + 1)
     if not members:
         raise ValueError("arXiv source archive contains no TeX files")
@@ -320,7 +333,23 @@ def _safe_tex_members(
 
 
 def _uncomment_tex(text: str) -> str:
-    return "\n".join(re.sub(r"(?<!\\)%.*", "", line) for line in text.splitlines())
+    return _mask_tex_comments(text)
+
+
+def _mask_tex_comments(text: str) -> str:
+    """Mask comments without shifting source offsets; honor escaped percent."""
+    result = []
+    for line in text.splitlines(keepends=True):
+        for match in re.finditer("%", line):
+            cursor = match.start() - 1
+            while cursor >= 0 and line[cursor] == "\\":
+                cursor -= 1
+            if (match.start() - cursor - 1) % 2 == 0:
+                end = len(line.rstrip("\r\n"))
+                line = line[:match.start()] + " " * (end - match.start()) + line[end:]
+                break
+        result.append(line)
+    return "".join(result)
 
 
 def _tex_document_order(members: dict[str, bytes], *, main_member: str | None = None) -> list[str]:
@@ -353,7 +382,7 @@ def _tex_document_order(members: dict[str, bytes], *, main_member: str | None = 
         seen.add(name)
         ordered.append(name)
         base = Path(name).parent
-        for referenced in _TEX_INPUT.findall(decoded[name]):
+        for referenced in _TEX_INPUT.findall(_mask_tex_comments(decoded[name])):
             clean = referenced.strip().replace("\\", "/")
             candidates = [clean, (base / clean).as_posix()]
             choices = [choice for candidate in candidates for choice in
@@ -366,12 +395,20 @@ def _tex_document_order(members: dict[str, bytes], *, main_member: str | None = 
     return ordered
 
 
-def parse_arxiv_source(data: bytes, *, main_member: str | None = None) -> list[ParsedBlock]:
+def parse_arxiv_source(data: bytes, *, main_member: str | None = None,
+                       diagnostics: dict | None = None) -> list[ParsedBlock]:
     members = _safe_tex_members(data)
     blocks: list[ParsedBlock] = []
     decoded = {name: value.decode("utf-8", errors="replace") for name, value in members.items()}
     main = _tex_document_order(members, main_member=main_member)[0]
     seen: set[str] = set()
+    active: set[str] = set()
+    occurrences: dict[str, int] = {}
+    current_section: str | None = None
+    expansion_count = 0
+    expanded_bytes = 0
+    diagnostics = diagnostics if diagnostics is not None else {}
+    diagnostics.update(main_tex=main, tex_members=sorted(members), missing_includes=[], recursive_includes=[])
 
     def resolve_reference(name: str, referenced: str) -> str | None:
         base = Path(name).parent
@@ -382,36 +419,51 @@ def parse_arxiv_source(data: bytes, *, main_member: str | None = None) -> list[P
         return next((choice for choice in choices if choice in decoded), None)
 
     def append_segment(name: str, segment: str, base_offset: int) -> None:
+        nonlocal current_section
         for block in parse_text(segment, tex=True):
-            metadata = {**(block.metadata or {}), "source_member": name}
+            if len(blocks) >= MAX_PARSED_BLOCKS:
+                raise RuntimeError("Structural block count exceeds resource limit")
+            if block.section_path is not None:
+                current_section = block.section_path
+            metadata = {**(block.metadata or {}), "source_member": name,
+                        "include_occurrence": occurrences[name]}
             if "char_start" in metadata:
                 metadata["char_start"] = int(metadata["char_start"]) + base_offset
                 metadata["char_end"] = int(metadata["char_end"]) + base_offset
                 original = decoded[name]
                 metadata["line_start"] = original.count("\n", 0, int(metadata["char_start"])) + 1
                 metadata["line_end"] = original.count("\n", 0, max(int(metadata["char_start"]), int(metadata["char_end"]) - 1)) + 1
-            blocks.append(replace(block, metadata=metadata))
+            blocks.append(replace(block, metadata=metadata, section_path=block.section_path or current_section))
 
     def visit(name: str, *, is_main: bool = False) -> None:
-        if name in seen:
+        nonlocal expansion_count, expanded_bytes
+        if name in active:
+            diagnostics["recursive_includes"].append(name)
             return
         seen.add(name)
+        expansion_count += 1
+        expanded_bytes += len(decoded[name].encode())
+        if expansion_count > MAX_INCLUDE_EXPANSIONS or expanded_bytes > MAX_EXPANDED_BYTES or len(active) >= 128:
+            raise RuntimeError("TeX include expansion exceeds resource limit")
+        active.add(name)
+        occurrences[name] = occurrences.get(name, 0) + 1
         original = decoded[name]
         content = original
         base_offset = 0
         if is_main:
-            preamble, marker, body = original.partition(r"\begin{document}")
+            masked = _mask_tex_comments(original)
+            preamble, marker, body = masked.partition(r"\begin{document}")
             if marker:
                 title = re.search(r"\\title\s*\{(.+?)\}", preamble, flags=re.DOTALL)
                 if title:
                     title_text = _normalize(re.sub(r"(?<!\\)[{}]", "", title.group(1)))
                     title_meta = _span_metadata(original, title.start(), title.end())
-                    blocks.append(ParsedBlock("heading", title.group(0), title_text, section_path=title_text,
+                    blocks.append(ParsedBlock("heading", original[title.start():title.end()], title_text, section_path=title_text,
                                               metadata={**title_meta, "source_member": name, "tex_command": "title"}))
                 base_offset = len(preamble) + len(marker)
-                content = body.rsplit(r"\end{document}", 1)[0]
+                content = original[base_offset:base_offset + len(body.partition(r"\end{document}")[0])]
         cursor = 0
-        for match in _TEX_INPUT.finditer(content):
+        for match in _TEX_INPUT.finditer(_mask_tex_comments(content)):
             append_segment(name, content[cursor:match.start()], base_offset + cursor)
             referenced = resolve_reference(name, match.group(1))
             if referenced:
@@ -419,14 +471,18 @@ def parse_arxiv_source(data: bytes, *, main_member: str | None = None) -> list[P
             else:
                 # Missing includes are diagnostics-worthy source evidence, not fatal corruption.
                 missing = match.group(0)
+                diagnostics["missing_includes"].append({"source_member": name, "reference": match.group(1)})
                 meta = _span_metadata(original, base_offset + match.start(), base_offset + match.end())
                 blocks.append(ParsedBlock("missing_include", missing, _normalize(missing),
                                           metadata={**meta, "source_member": name,
                                                     "missing_reference": match.group(1)}))
             cursor = match.end()
         append_segment(name, content[cursor:], base_offset + cursor)
+        active.remove(name)
 
     visit(main, is_main=True)
+    diagnostics["used_tex_members"] = sorted(seen)
+    diagnostics["unused_tex_members"] = sorted(set(members) - seen)
     return blocks
 
 

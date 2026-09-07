@@ -11,8 +11,9 @@ Downloads are limited to 50 MiB. Complete gzip decompression is bounded to
 10,000 members. Size-limit failures do not trigger PDF fallback. Parsing occurs
 before asset promotion. A subsequent database failure can leave an orphan
 content-addressed file; it cannot leave a source row pointing to a missing asset.
-Do not automatically delete orphan assets. Full staging reconciliation and a
-120-second parser subprocess deadline are not implemented yet.
+Do not automatically delete orphan assets. Maintenance reports orphan/staging
+files without removing them. A [120-second parser subprocess deadline](parser-safety.md)
+is now enforced.
 
 Byte-identical explicit paper revisions have separate identities. Reingestion
 reuses an existing matching revision/hash identity, preserving historical IDs.

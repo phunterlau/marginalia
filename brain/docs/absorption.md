@@ -89,6 +89,8 @@ providers and do not establish live API behavior or scientific usefulness.
 
 The [maintenance commands](maintenance.md) provide consistent backup/restore,
 explicit backed-up migration, and report-only orphan/staging reconciliation.
-Before unattended use, the remaining backend gates include a parser process deadline,
-the full local-corpus failure matrix, and an explicitly approved live absorption.
+The [isolated parser](parser-safety.md) enforces its process deadline and has
+passed the pinned local-corpus source-span and retrieval gate. Remaining backend
+work includes complete-list/omission context access, the broader end-to-end
+failure audit, and an explicitly approved live absorption.
 This command does not yet install a daemon, expose Discord, or start Pi.

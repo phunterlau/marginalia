@@ -203,6 +203,7 @@ class SQLiteStore:
                     block_id = stable_id(
                         "block", compilation["id"], str(member or ""), str(meta.get("char_start", ordinal)),
                         str(meta.get("char_end", ordinal)), raw_sha,
+                        str(meta.get("include_occurrence", 0)),
                     )
                     connection.execute(
                         """INSERT INTO document_blocks(
@@ -215,10 +216,11 @@ class SQLiteStore:
                          compilation["id"], member, meta.get("line_start"), meta.get("line_end"),
                          meta.get("char_start"), meta.get("char_end"), raw_sha),
                     )
-                    connection.execute(
-                        "INSERT INTO block_fts(block_id, document_version_id, block_type, section_path, body) VALUES (?, ?, ?, ?, ?)",
-                        (block_id, version["id"], block.block_type, block.section_path or "", block.normalized_text),
-                    )
+                    if block.block_type != "comment":
+                        connection.execute(
+                            "INSERT INTO block_fts(block_id, document_version_id, block_type, section_path, body) VALUES (?, ?, ?, ?, ?)",
+                            (block_id, version["id"], block.block_type, block.section_path or "", block.normalized_text),
+                        )
                 self._append_event(connection, "paper_compiled", document["id"], {
                     "document_version_id": version["id"], "compilation_id": compilation["id"],
                     "block_count": len(blocks), "parser_version": compilation["parser_version"],

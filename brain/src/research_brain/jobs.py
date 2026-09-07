@@ -143,7 +143,8 @@ class AbsorptionJobs:
             "embedding_selection": "pinned compilation and cards returned by these extraction tasks",
             "embedding_calls_note": "Source batches plus generated-card batches; every call shares the same hard budget.",
             "quality": {"blocks": len(blocks), "equations": sum(b["block_type"] == "equation" for b in blocks),
-                        "unknown_license": source["license_uri"] is None},
+                        "unknown_license": source["license_uri"] is None,
+                        "parser": source["parser_version"], "diagnostics": json.loads(source["diagnostics_json"])},
         }
 
     def absorb(self, url: str, *, limits: SpendingLimits | None = None) -> dict:

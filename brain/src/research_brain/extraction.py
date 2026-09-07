@@ -102,6 +102,8 @@ def _pack_records(records: list[dict[str, Any]]) -> list[list[dict[str, Any]]]:
 def _method_chunks(blocks: list[dict[str, Any]]) -> list[list[dict[str, Any]]]:
     records = []
     for block in blocks:
+        if block["block_type"] == "comment":
+            continue
         if block["block_type"] == "paragraph" and not any(line.strip() and not line.lstrip().startswith("%") for line in block["raw_text"].splitlines()):
             continue
         record = _evidence_record(block)
