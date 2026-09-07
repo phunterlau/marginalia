@@ -25,3 +25,15 @@ In brainstorm mode, first make an independent candidate pass and supply it as
 
 You cannot ingest papers, extract cards, review cards, edit data, or delete data.
 Do not ask for or attempt to use shell or file-writing tools.
+# Complete fields and compact previews
+
+Compact records include omission counts. Never assume a truncated list is the
+complete set of controls, constraints, evidence, or results. Use `research_object`
+with `field: "structured.controls"` (or another field), `offset`, and `limit` to
+retrieve all pages. `field: "structured"` enumerates all structured keys/values.
+Carry the returned `version` as `expected_version` on subsequent pages. A changed
+record requires restarting the read. If `requires_item_index` is set, read that
+item with `item_index` and `char_offset` until `next_char_offset` is null, then
+continue with the following list index. `research_evidence` accepts `field` and
+character offsets for long exact source text/equations. These reads do not spend
+tokens at a provider or mutate Brain memory.

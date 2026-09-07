@@ -180,7 +180,8 @@ class SpaceRegistry:
         Does not return a Brain handle or allow caller-selected paths/provider calls.
         Arms must additionally bind the supplied scope to its authenticated session.
         """
-        allowed = {"get_document", "get_evidence", "get_research_object", "recall", "search"}
+        allowed = {"get_document", "get_evidence", "get_research_object", "recall", "search",
+                   "read_object_field", "read_evidence_field"}
         if operation not in allowed or kwargs.get("semantic_live"):
             raise PermissionError("Operation unavailable")
         self.validate(scope, space_id=space_id)

@@ -47,18 +47,32 @@ def _short(value: Any, maximum: int = 1_200) -> Any:
     return value
 
 
-def _compact_structured(value: dict[str, Any]) -> dict[str, Any]:
-    result: dict[str, Any] = {}
-    for key, item in value.items():
-        if key == "evidence":
-            continue
+def _structured_projection(value: dict[str, Any]) -> tuple[dict[str, Any], dict[str, Any]]:
+    omissions = {}
+    def visit(item, path, depth=0):
+        if isinstance(item, str):
+            maximum = 1200 if depth <= 1 else 600
+            if len(item) > maximum:
+                omissions[path] = {"omitted_characters": len(item) - maximum, "total_characters": len(item)}
+            return _short(item, maximum)
+        if isinstance(item, (dict, list)) and depth >= 6:
+            omissions[path] = {"omitted": len(item), "reason": "depth_limit"}
+            return {} if isinstance(item, dict) else []
         if isinstance(item, list):
-            result[key] = [_short(entry, 600) for entry in item[:8]]
-        elif isinstance(item, dict):
-            result[key] = {str(name): _short(entry, 600) for name, entry in list(item.items())[:20]}
-        else:
-            result[key] = _short(item)
-    return result
+            if len(item) > 8:
+                omissions[path] = {"total": len(item), "returned": 8, "omitted": len(item) - 8}
+            return [visit(entry, f"{path}/{index}", depth + 1) for index, entry in enumerate(item[:8])]
+        if isinstance(item, dict):
+            if len(item) > 20:
+                omissions[path] = {"total": len(item), "returned": 20, "omitted": len(item) - 20}
+            return {name: visit(entry, f"{path}/{name}", depth + 1) for name, entry in list(item.items())[:20]}
+        return item
+    result = visit(value, "")
+    return result, omissions
+
+
+def _compact_structured(value: dict[str, Any]) -> dict[str, Any]:
+    return _structured_projection(value)[0]
 
 
 def _compact_evidence(value: dict[str, Any]) -> dict[str, Any]:
@@ -78,11 +92,15 @@ def _record_item(record: dict[str, Any], why: str) -> dict[str, Any]:
         "kind": record["kind"],
         "title": record.get("title"),
         "summary": record["body"][:1_200],
+        "summary_omitted_characters": max(0, len(record["body"]) - 1200),
         "origin": record["origin"],
         "review_state": record["review_state"],
         "structured": _compact_structured(record.get("structured") or {}),
+        "structured_omissions": _structured_projection(record.get("structured") or {})[1],
+        "complete_field_access": {"object_id": record["id"], "tool": "research_object", "field_prefix": "structured."},
         "why_retrieved": why,
         "evidence": [_compact_evidence(item) for item in record.get("evidence", [])[:4]],
+        "evidence_omitted": max(0, len(record.get("evidence", [])) - 4),
     }
 
 
@@ -92,11 +110,15 @@ def _hit_item(hit: SearchHitV2, why: str) -> dict[str, Any]:
         "kind": hit.kind,
         "title": hit.title,
         "summary": hit.text[:1_200],
+        "summary_omitted_characters": max(0, len(hit.text) - 1200),
         "origin": hit.origin,
         "review_state": hit.review_state,
         "structured": _compact_structured(hit.structured or {}),
+        "structured_omissions": _structured_projection(hit.structured or {})[1],
+        "complete_field_access": {"object_id": hit.record_id, "tool": "research_object", "field_prefix": "structured."},
         "why_retrieved": why,
         "evidence": [_compact_evidence(item) for item in hit.evidence[:4]],
+        "evidence_omitted": max(0, len(hit.evidence) - 4),
     }
 
 
@@ -243,6 +265,7 @@ class ContextCompiler:
                 "record_id": frontier["id"], "title": frontier.get("title"),
                 "origin": frontier["origin"], "review_state": frontier["review_state"],
                 "state": _compact_structured(frontier["structured"]),
+                "state_omissions": _structured_projection(frontier["structured"])[1],
             }
         mismatch = None
         if not seen:

@@ -91,6 +91,7 @@ The [maintenance commands](maintenance.md) provide consistent backup/restore,
 explicit backed-up migration, and report-only orphan/staging reconciliation.
 The [isolated parser](parser-safety.md) enforces its process deadline and has
 passed the pinned local-corpus source-span and retrieval gate. Remaining backend
-work includes complete-list/omission context access, the broader end-to-end
-failure audit, and an explicitly approved live absorption.
+work includes the broader end-to-end failure audit and an explicitly approved
+live absorption. [Complete field pages and omission counts](complete-fields.md)
+are available through Python, the CLI, and the read-only Pi adapter.
 This command does not yet install a daemon, expose Discord, or start Pi.

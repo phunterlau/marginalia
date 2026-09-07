@@ -111,6 +111,10 @@ def build_parser() -> argparse.ArgumentParser:
 
     evidence = commands.add_parser("evidence", help="Show a block with complete source locator")
     evidence.add_argument("block_id")
+    evidence.add_argument("--field", choices=("raw_text", "raw_latex", "normalized_text"))
+    evidence.add_argument("--char-offset", type=int, default=0)
+    evidence.add_argument("--char-limit", type=int, default=8000)
+    evidence.add_argument("--expected-version")
 
     paper = commands.add_parser("paper", help="Document operations")
     paper_commands = paper.add_subparsers(dest="paper_command", required=True)
@@ -238,6 +242,15 @@ def build_parser() -> argparse.ArgumentParser:
     object_list.add_argument("--limit", type=int, default=50)
     object_show = object_commands.add_parser("show")
     object_show.add_argument("object_id")
+    object_field = object_commands.add_parser("field", help="Lossless bounded field pages")
+    object_field.add_argument("object_id")
+    object_field.add_argument("field")
+    object_field.add_argument("--offset", type=int, default=0)
+    object_field.add_argument("--limit", type=int, default=20)
+    object_field.add_argument("--item-index", type=int)
+    object_field.add_argument("--char-offset", type=int, default=0)
+    object_field.add_argument("--char-limit", type=int, default=8000)
+    object_field.add_argument("--expected-version")
     object_evidence = object_commands.add_parser("evidence")
     object_evidence.add_argument("object_id")
     object_review = object_commands.add_parser("review")
@@ -400,6 +413,10 @@ def run(args: argparse.Namespace) -> Any:
         from .reviewer import serve
         return serve(Path(args.root), args.port)
     brain = Brain(Path(args.root), initialize=not bool(args.space))
+    if args.command == "object" and args.object_command == "field":
+        return brain.read_object_field(args.object_id, args.field, offset=args.offset, limit=args.limit,
+                                       item_index=args.item_index, char_offset=args.char_offset,
+                                       char_limit=args.char_limit, expected_version=args.expected_version)
     if args.command == "init":
         return {"database": str(brain.store.path), "status": "ready"}
     if args.command == "ingest":
@@ -413,6 +430,9 @@ def run(args: argparse.Namespace) -> Any:
                             filters=RetrievalFiltersV1(**_json_object(args.filters, label="filters")),
                             limit=args.limit, semantic_live=args.semantic_live)
     if args.command == "evidence":
+        if args.field:
+            return brain.read_evidence_field(args.block_id, args.field, char_offset=args.char_offset,
+                                             char_limit=args.char_limit, expected_version=args.expected_version)
         result = brain.get_evidence(args.block_id)
         if result is None:
             raise LookupError(f"Evidence block not found: {args.block_id}")

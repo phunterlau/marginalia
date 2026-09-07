@@ -1,6 +1,7 @@
 import { execFile } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
+import { projectStructured } from "./compact.mjs";
 import { Type } from "@earendil-works/pi-ai";
 import { defineTool, type ExtensionAPI } from "@earendil-works/pi-coding-agent";
 
@@ -50,28 +51,13 @@ function compactEvidence(value: any): Record<string, unknown> {
 		line_end: value.line_end,
 		excerpt: truncate(value.raw_text || value.normalized_text),
 		raw_latex: truncate(value.raw_latex, 2_000),
+		excerpt_omitted_characters: Math.max(0, ((value.raw_text || value.normalized_text)?.length || 0) - MAX_EXCERPT_CHARS),
+		raw_latex_omitted_characters: Math.max(0, (value.raw_latex?.length || 0) - 2000),
 	};
 }
 
 function compactStructured(value: any): Record<string, unknown> | null {
-	if (!value || typeof value !== "object") return null;
-	const scalarKeys = [
-		"schema", "name", "problem", "mechanism", "role", "semantic_gloss", "math_move",
-		"gradients_required", "training_required", "activation_access", "weight_access",
-	];
-	const listKeys = [
-		"procedure", "inputs", "outputs", "assumptions", "failure_modes", "scientific_moves",
-		"affordances",
-	];
-	const result: Record<string, unknown> = {};
-	for (const key of scalarKeys) {
-		if (value[key] !== undefined) result[key] = truncate(value[key]);
-	}
-	for (const key of listKeys) {
-		if (Array.isArray(value[key])) result[key] = value[key].slice(0, 8).map((item: unknown) => truncate(item, 600));
-	}
-	if (value.exact_latex !== undefined) result.exact_latex = truncate(value.exact_latex, 2_000);
-	return result;
+	return value && typeof value === "object" ? projectStructured(value).value : null;
 }
 
 function compactHit(value: any): Record<string, unknown> {
@@ -86,6 +72,9 @@ function compactHit(value: any): Record<string, unknown> {
 		document_version_id: value.document_version_id,
 		source_locator: value.source_locator,
 		structured: compactStructured(value.structured),
+		structured_omissions: projectStructured(value.structured).omissions,
+		text_omitted_characters: Math.max(0, (value.text?.length || 0) - MAX_EXCERPT_CHARS),
+		evidence_omitted: Math.max(0, (value.evidence?.length || 0) - MAX_EVIDENCE_PER_HIT),
 		evidence: Array.isArray(value.evidence)
 			? value.evidence.slice(0, MAX_EVIDENCE_PER_HIT).map(compactEvidence)
 			: [],
@@ -115,6 +104,11 @@ function boundedObject(stdout: string): string {
 		raw_text: truncate(parsed.raw_text, 12_000),
 		raw_latex: truncate(parsed.raw_latex, 12_000),
 		structured: compactStructured(parsed.structured),
+		structured_omissions: projectStructured(parsed.structured).omissions,
+		body_omitted_characters: Math.max(0, (parsed.body?.length || 0) - 4000),
+		raw_text_omitted_characters: Math.max(0, (parsed.raw_text?.length || 0) - 12000),
+		raw_latex_omitted_characters: Math.max(0, (parsed.raw_latex?.length || 0) - 12000),
+		evidence_omitted: Math.max(0, (parsed.evidence?.length || 0) - MAX_EVIDENCE_PER_HIT),
 		evidence: Array.isArray(parsed.evidence)
 			? parsed.evidence.slice(0, MAX_EVIDENCE_PER_HIT).map(compactEvidence)
 			: parsed.evidence,
@@ -225,9 +219,18 @@ const evidenceTool = defineTool({
 	name: "research_evidence",
 	label: "Research evidence",
 	description: "Read one immutable evidence block and its exact source locator.",
-	parameters: Type.Object({ block_id: Type.String() }),
+	parameters: Type.Object({ block_id: Type.String(), field: Type.Optional(Type.Union([Type.Literal("raw_text"), Type.Literal("raw_latex"), Type.Literal("normalized_text")])), char_offset: Type.Optional(Type.Integer({ minimum: 0, maximum: 100000000 })), char_limit: Type.Optional(Type.Integer({ minimum: 1, maximum: 16000 })), expected_version: Type.Optional(Type.String({ pattern: "^[a-f0-9]{64}$" })) }),
 	async execute(_id, params, signal) {
 		if (!ID.test(params.block_id) || !params.block_id.startsWith("block_")) throw new Error("Invalid block id");
+		if (params.field) {
+			const args = ["evidence", params.block_id, "--field", params.field];
+			if (params.char_offset !== undefined) args.push("--char-offset", String(params.char_offset));
+			if (params.char_limit !== undefined) args.push("--char-limit", String(params.char_limit));
+			if (params.expected_version) args.push("--expected-version", params.expected_version);
+			const text = await runResearch(args, signal);
+			if (text.length > MAX_TOOL_OUTPUT_CHARS) throw new Error("Evidence page exceeds output limit");
+			return { content: [{ type: "text", text }], details: { block_id: params.block_id, paginated: true } };
+		}
 		const text = boundedObject(await runResearch(["evidence", params.block_id], signal));
 		return { content: [{ type: "text", text }], details: { block_id: params.block_id } };
 	},
@@ -236,10 +239,19 @@ const evidenceTool = defineTool({
 const objectTool = defineTool({
 	name: "research_object",
 	label: "Research object",
-	description: "Read one research card, including review state and evidence bundle.",
-	parameters: Type.Object({ object_id: Type.String() }),
+	description: "Read one research object, including review state and omission counts. Supply field (e.g. structured.controls or evidence) for complete bounded pages. Use next_offset; if requires_item_index is set, retrieve that item in fragments using item_index and char_offset. Carry expected_version across pages.",
+	parameters: Type.Object({ object_id: Type.String(), field: Type.Optional(Type.String({ pattern: "^(structured(\\.[A-Za-z0-9_]{1,80})?|body|evidence)$" })), offset: Type.Optional(Type.Integer({ minimum: 0, maximum: 1000000 })), limit: Type.Optional(Type.Integer({ minimum: 1, maximum: 100 })), item_index: Type.Optional(Type.Integer({ minimum: 0, maximum: 1000000 })), char_offset: Type.Optional(Type.Integer({ minimum: 0, maximum: 100000000 })), char_limit: Type.Optional(Type.Integer({ minimum: 1, maximum: 16000 })), expected_version: Type.Optional(Type.String({ pattern: "^[a-f0-9]{64}$" })) }),
 	async execute(_id, params, signal) {
 		if (!ID.test(params.object_id) || !params.object_id.startsWith("obj_")) throw new Error("Invalid object id");
+		if (params.field) {
+			const args = ["object", "field", params.object_id, params.field];
+			for (const key of ["offset", "limit", "item_index", "char_offset", "char_limit", "expected_version"] as const) {
+				if (params[key] !== undefined) args.push(`--${key.replaceAll("_", "-")}`, String(params[key]));
+			}
+			const text = await runResearch(args, signal);
+			if (text.length > MAX_TOOL_OUTPUT_CHARS) throw new Error("Object page exceeds output limit");
+			return { content: [{ type: "text", text }], details: { object_id: params.object_id, paginated: true } };
+		}
 		const text = boundedObject(await runResearch(["object", "evidence", params.object_id], signal));
 		return { content: [{ type: "text", text }], details: { object_id: params.object_id } };
 	},

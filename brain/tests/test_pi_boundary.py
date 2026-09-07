@@ -7,12 +7,31 @@ import json
 import os
 import subprocess
 import tempfile
+import shutil
+import pytest
 from unittest.mock import patch
 
 
 PROJECT = Path(__file__).resolve().parents[1]
 EXTENSION = (PROJECT / "integrations" / "pi" / "research-brain.ts").read_text(encoding="utf-8")
 INSTRUCTIONS = (PROJECT / "integrations" / "pi" / "RESEARCH_ASSISTANT.md").read_text(encoding="utf-8")
+
+
+def test_native_pi_loads_extension_without_provider_calls(tmp_path):
+    binary = shutil.which("pi")
+    if binary is None:
+        pytest.skip("Pi is optional; native extension load requires local Pi")
+    env = {k: v for k, v in os.environ.items() if not k.startswith(("OPENAI_", "ANTHROPIC_"))}
+    env["PI_CODING_AGENT_DIR"] = str(tmp_path / "isolated-agent")
+    result = subprocess.run([binary, "--mode", "rpc", "--no-session", "--no-tools", "--no-extensions",
+                             "--no-skills", "--no-prompt-templates", "--no-context-files", "-e",
+                             str(PROJECT / "integrations/pi/research-brain.ts")],
+                            input='{"type":"get_state","id":"load-check"}\n',
+                            text=True, capture_output=True, env=env, timeout=15)
+    assert result.returncode == 0, result.stderr
+    assert not result.stderr
+    replies = [json.loads(line) for line in result.stdout.splitlines() if line.startswith("{")]
+    assert any(r.get("id") == "load-check" and r.get("success") for r in replies)
 
 
 def test_pi_recall_exposes_all_bounded_retrieval_filters() -> None:

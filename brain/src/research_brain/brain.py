@@ -46,6 +46,20 @@ class Brain:
     def get_research_object(self, object_id: str) -> dict[str, Any] | None:
         return self.store.get_object_record(object_id)
 
+    def read_object_field(self, object_id: str, field: str, **options: Any) -> dict[str, Any]:
+        from .record_pages import page
+        record = self.get_research_object(object_id)
+        if record is None:
+            raise LookupError("Object unavailable")
+        return page(record, field, **options)
+
+    def read_evidence_field(self, block_id: str, field: str = "raw_text", **options: Any) -> dict[str, Any]:
+        from .record_pages import page
+        record = self.get_evidence(block_id)
+        if record is None:
+            raise LookupError("Evidence unavailable")
+        return page(record, field, **options)
+
     def list_research_objects(
         self,
         *,
