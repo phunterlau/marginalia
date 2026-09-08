@@ -150,7 +150,25 @@ themselves; the adapter must enforce actual audience permissions and suppress
 mentions. Recovery requires prior verification that old workers are stopped,
 quarantines interrupted conversations, and marks interrupted sends UNKNOWN.
 
-## Boundaries still to implement
+## Discord IO primitives
+
+Install `arms[discord]` for the optional HTTP client. `discord_io` accepts only
+bounded UTF-8 `.txt`/`.md` attachments from Discord CDN attachment URLs, with no
+redirects and no bot credentials on download requests. Call it only after
+authenticating and authorizing the incoming event. Combined questions are capped
+at 20,000 characters; declared and streamed bytes are bounded separately.
+
+`DiscordSender` posts one persisted answer using a stable nonce, disabled
+mentions and suppressed embeds. Longer answers become an exact Markdown file.
+It requires a transport-provided current Discord audience/permission check;
+local Brain membership alone is insufficient. Every failed or ambiguous send
+remains UNKNOWN without automatic retry. `reconcile` reads one exact remote
+message and checks author, channel and nonce before confirming it, never resending.
+Discord nonce deduplication is time-limited, not a substitute for durable outbox
+state. See the [Discord message API](https://docs.discord.com/developers/resources/message).
+Tests use fake HTTP responses; no live Discord send has been performed.
+
+## Remaining integration
 
 This is an offline control-plane foundation, **not a running Discord bot**.
 Gateway authentication/handlers, default active-DM and paper-thread routing,
