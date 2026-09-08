@@ -70,3 +70,43 @@ def test_revoked_scope_never_projects_and_is_not_replayed(setup):
         assert await worker.work_once() is None
     asyncio.run(run())
     assert spaces.open("project").search_discussions("Contrast")["items"] == []
+
+
+def test_message_deletion_tombstones_search_without_changing_pi_history(setup):
+    arms, spaces = setup
+    turn, delivery = answered(arms)
+    arms.confirm_delivery(delivery["delivery_id"], "200")
+    worker = DiscussionWorker(arms, Access())
+    asyncio.run(worker.work_once())
+    assert arms.discussion_message_deleted(guild_id="10", channel_id="99", message_id="100") == 0
+    assert arms.discussion_message_deleted(guild_id="10", channel_id="20", message_id="100") == 1
+    assert arms.discussion_message_deleted(guild_id="10", channel_id="20", message_id="100") == 0
+    # A revocation must not prevent removal from the old shared search index.
+    spaces.set_membership("project", "bob", None)
+    asyncio.run(worker.work_once())
+    assert spaces.open("project").search_discussions("Contrast")["items"] == []
+    with arms.connect(readonly=True) as db:
+        assert db.execute("SELECT prompt FROM turns WHERE id=?", (turn,)).fetchone()[0] == "Contrast directions"
+        assert db.execute("SELECT COUNT(*) FROM discussion_jobs").fetchone()[0] == 2
+    with spaces.open("project").store.connect() as db:
+        assert db.execute("SELECT COUNT(*) FROM discussion_revisions").fetchone()[0] == 2
+
+
+def test_delete_before_delivery_confirmation_never_indexes_question(setup):
+    arms, spaces = setup
+    _, delivery = answered(arms)
+    assert arms.discussion_message_deleted(guild_id="10", channel_id="20", message_id="100") == 0
+    arms.confirm_delivery(delivery["delivery_id"], "200")
+    asyncio.run(DiscussionWorker(arms, Access()).work_once())
+    assert spaces.open("project").search_discussions("Contrast")["items"] == []
+
+
+def test_deleted_bot_answer_removes_the_exchange(setup):
+    arms, spaces = setup
+    _, delivery = answered(arms)
+    arms.confirm_delivery(delivery["delivery_id"], "200")
+    worker = DiscussionWorker(arms, Access())
+    asyncio.run(worker.work_once())
+    assert arms.discussion_message_deleted(guild_id="10", channel_id="21", message_id="200") == 1
+    asyncio.run(worker.work_once())
+    assert spaces.open("project").search_discussions("recorded")["items"] == []

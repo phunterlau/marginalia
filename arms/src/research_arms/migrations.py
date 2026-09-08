@@ -37,6 +37,14 @@ def migrate_v7_to_v8(root):
         "CREATE TABLE discussion_jobs(turn_id TEXT PRIMARY KEY REFERENCES turns(id), scope_json TEXT NOT NULL, payload_json TEXT NOT NULL, state TEXT NOT NULL, created_at TEXT NOT NULL)"))
 
 
+def migrate_v8_to_v9(root):
+    return _migrate(root, 8, 9, (
+        "ALTER TABLE discussion_jobs RENAME TO old_discussion_jobs",
+        "CREATE TABLE discussion_jobs(id TEXT PRIMARY KEY, turn_id TEXT NOT NULL REFERENCES turns(id), scope_json TEXT NOT NULL, payload_json TEXT NOT NULL, state TEXT NOT NULL, created_at TEXT NOT NULL)",
+        "INSERT INTO discussion_jobs SELECT turn_id || ':1',turn_id,scope_json,payload_json,state,created_at FROM old_discussion_jobs",
+        "DROP TABLE old_discussion_jobs"))
+
+
 def _migrate(root, previous, current, statement):
     root = Path(root).resolve(strict=True)
     path = root / "arms.sqlite3"

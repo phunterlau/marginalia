@@ -44,7 +44,7 @@ def visibility(scope):
 
 
 class ArmsRegistry:
-    VERSION = 8
+    VERSION = 9
 
     def __init__(self, root, spaces: SpaceRegistry, *, create=False):
         self.root = Path(root).resolve()
@@ -56,7 +56,7 @@ class ArmsRegistry:
             with self.connect(create=True) as db:
                 db.executescript("""
                     CREATE TABLE meta(version INTEGER NOT NULL);
-                    INSERT INTO meta VALUES (8);
+                    INSERT INTO meta VALUES (9);
                     CREATE TABLE principals(discord_user TEXT PRIMARY KEY, principal TEXT UNIQUE NOT NULL,
                                             personal_space TEXT NOT NULL);
                     CREATE TABLE channels(guild_id TEXT NOT NULL, channel_id TEXT NOT NULL,
@@ -101,7 +101,7 @@ class ArmsRegistry:
                         destination_space TEXT NOT NULL, policy_version INTEGER NOT NULL, bundle_json TEXT NOT NULL,
                         private_refs_json TEXT NOT NULL, digest TEXT NOT NULL, state TEXT NOT NULL,
                         consent_actor TEXT, approval_actor TEXT, created_at TEXT NOT NULL);
-                    CREATE TABLE discussion_jobs(turn_id TEXT PRIMARY KEY REFERENCES turns(id),
+                    CREATE TABLE discussion_jobs(id TEXT PRIMARY KEY, turn_id TEXT NOT NULL REFERENCES turns(id),
                         scope_json TEXT NOT NULL, payload_json TEXT NOT NULL, state TEXT NOT NULL, created_at TEXT NOT NULL);
                 """)
         with self.connect(readonly=True) as db:
@@ -497,8 +497,35 @@ class ArmsRegistry:
                 "guild_id": turn["guild_id"], "channel_id": turn["channel_id"], "question_channel_id": turn["question_channel_id"],
                 "message_id": turn["discord_message_id"], "answer_message_id": discord_message_id,
                 "pi_entry_id": turn["pi_entry_id"], "deleted": False, "recorded_at": now()}
-            db.execute("INSERT INTO discussion_jobs VALUES (?,?,?,'QUEUED',?)",
-                (turn["id"], turn["scope_json"], encode(payload), now()))
+            for source_channel, source_message in ((turn["question_channel_id"], turn["discord_message_id"]), (turn["channel_id"], discord_message_id)):
+                if db.execute("SELECT 1 FROM events WHERE kind='discussion_message_deleted' AND subject=?",
+                    (encode([turn["guild_id"], source_channel, source_message]),)).fetchone():
+                    payload.update(deleted=True, question="", answer="")
+            db.execute("INSERT INTO discussion_jobs VALUES (?,?,?,?,'QUEUED',?)",
+                (turn["id"] + ":1", turn["id"], turn["scope_json"], encode(payload), now()))
+
+    def discussion_message_deleted(self, *, guild_id, channel_id, message_id):
+        """Authenticated Gateway deletion only; never selects arbitrary space paths."""
+        snowflake(channel_id), snowflake(message_id)
+        if guild_id is not None: snowflake(guild_id)
+        subject = encode([guild_id, channel_id, message_id])
+        with self.connect() as db:
+            db.execute("BEGIN IMMEDIATE")
+            rows = db.execute("SELECT t.id FROM turns t JOIN conversations c ON c.id=t.conversation_id LEFT JOIN outbox o ON o.turn_id=t.id WHERE c.guild_id IS ? AND ((t.question_channel_id=? AND t.discord_message_id=?) OR (c.channel_id=? AND o.discord_message_id=?))",
+                (guild_id, channel_id, message_id, channel_id, message_id)).fetchall()
+            if not rows or db.execute("SELECT 1 FROM events WHERE kind='discussion_message_deleted' AND subject=?", (subject,)).fetchone(): return 0
+            db.execute("INSERT INTO events(kind,subject,at) VALUES ('discussion_message_deleted',?,?)", (subject, now()))
+            count = 0
+            for turn in rows:
+                latest = db.execute("SELECT * FROM discussion_jobs WHERE turn_id=? ORDER BY CAST(json_extract(payload_json,'$.revision') AS INTEGER) DESC LIMIT 1", (turn[0],)).fetchone()
+                if latest is None: continue  # Confirmation will consult the deletion marker.
+                payload = json.loads(latest["payload_json"])
+                if payload["deleted"]: continue
+                payload.update(revision=payload["revision"] + 1, deleted=True, question="", answer="", recorded_at=now())
+                db.execute("INSERT INTO discussion_jobs VALUES (?,?,?,?,'QUEUED',?)",
+                    (turn[0] + ":" + str(payload["revision"]), turn[0], latest["scope_json"], encode(payload), now()))
+                count += 1
+            return count
 
     def recover_stopped_workers(self, *, confirmed_stopped=False):
         """Trusted supervisor operation only after verifying old processes stopped."""
@@ -522,7 +549,7 @@ class ArmsRegistry:
                 ("paper_threads", "id", "state IN ('MESSAGE_SENDING','MESSAGE_READY','THREAD_SENDING','THREAD_READY','RECONCILING')", "paper_thread_interrupted"),
                 ("session_forks", "request_id", "state='PREPARED'", "fork_interrupted"),
                 ("publications", "id", "state='RUNNING'", "publication_interrupted"),
-                ("discussion_jobs", "turn_id", "state='RUNNING'", "discussion_interrupted"),
+                ("discussion_jobs", "id", "state='RUNNING'", "discussion_interrupted"),
             ):
                 identities = [r[0] for r in db.execute(f"SELECT {key} FROM {table} WHERE {condition}")]
                 for ident in identities:

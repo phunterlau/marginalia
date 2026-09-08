@@ -21,7 +21,7 @@ Keep operational databases, source archives, backups, credentials and Pi session
 outside the checkout. `ArmsRegistry(..., create=True)` explicitly creates a new
 operational registry; ordinary opening never initializes or migrates a database.
 
-Registry version 8 adds the discussion projection outbox and original question
+Registry version 9 adds revisioned discussion outbox entries; version 8 added the discussion projection outbox and original question
 channel; version 7 added immutable publication previews; version 6 added the automatic thread outbox; version 5 added pinned-paper
 thread checkpoints; version 4 added source submissions; version 3 added fork staging and
 version 2 added routing. For a version-1
@@ -31,7 +31,7 @@ worker lock or RUNNING claims, verifies a private SQLite backup, then migrates
 transactionally. It returns the backup path (or `None` if already current).
 Then run `migrate_v2_to_v3(root)`, `migrate_v3_to_v4(root)`, and
 `migrate_v4_to_v5(root)`, `migrate_v5_to_v6(root)`, `migrate_v6_to_v7(root)`, then
-`migrate_v7_to_v8(root)` from the same module in order, starting at the registry's
+`migrate_v7_to_v8(root)`, then `migrate_v8_to_v9(root)` from the same module in order, starting at the registry's
 current version. Each step creates its own verified backup.
 Opening an old registry does not perform migrations automatically.
 
@@ -346,7 +346,7 @@ projection requires attention rather than silently replaying. Shutdown joins the
 writer and local recovery quarantines RUNNING projection jobs. Original question
 channels are preserved for paper-starter replies; unknown legacy locations are
 not invented. Migration does not backfill historical deliveries. Brain schema 003
-must be migrated explicitly before projection. Edits/deletions, historical
+must be migrated explicitly before projection. Edits, historical
 backfill/retry controls remain pending. Pi can use `research_discussed` with an
 explicit permitted space, a query of at most 2000 characters, and at most three
 results. The same turn-bound credentials, revocation checks and output limits
@@ -354,7 +354,17 @@ apply. Results label discussion as non-scientific memory and identify question
 authors separately from assistant answers. Scientific recall is unchanged.
 
 This is a partial pilot, **not a validated live deployment**. Complete Discord
-recovery controls, discussion revision events and reactions still need integration.
+recovery controls, discussion edit events and reactions still need integration.
+
+Authenticated raw single/bulk Discord deletion events match only already tracked
+message IDs and their exact guild/channel. They append idempotent tombstones to
+the discussion outbox; unknown casual messages are not retained. Deleting either
+side removes the exchange from discussion search after projection, including when
+the question was deleted before answer confirmation. Deletion retractions remain
+effective after membership changes because they only reduce search visibility
+in the original space. Original turns, revision history and Pi context are not
+erased, and nothing is replayed to Pi. Offline deletion reconciliation and message
+edit handling remain pending; deletion is not a promise of provider erasure.
 The delivery and permissions paths are mock-tested, not live-tested. There is no
 HTTP listener, installed daemon or LaunchAgent.
 

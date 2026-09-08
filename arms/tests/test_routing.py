@@ -3,7 +3,7 @@ import sqlite3
 import pytest
 
 from research_arms import ArmsRegistry, Unavailable
-from research_arms.migrations import migrate_v1_to_v2, migrate_v2_to_v3, migrate_v3_to_v4, migrate_v4_to_v5, migrate_v5_to_v6, migrate_v6_to_v7, migrate_v7_to_v8
+from research_arms.migrations import migrate_v1_to_v2, migrate_v2_to_v3, migrate_v3_to_v4, migrate_v4_to_v5, migrate_v5_to_v6, migrate_v6_to_v7, migrate_v7_to_v8, migrate_v8_to_v9
 from test_registry import setup, shared, turn
 
 
@@ -71,9 +71,11 @@ def test_explicit_backed_up_migration_preserves_v1(setup):
     assert migrate_v6_to_v7(arms.root)
     assert migrate_v6_to_v7(arms.root) is None
     assert migrate_v7_to_v8(arms.root)
+    assert migrate_v7_to_v8(arms.root) is None
+    assert migrate_v8_to_v9(arms.root)
     reopened = ArmsRegistry(arms.root, spaces)
     reopened.select_conversation(conv, "1", channel_id="21", guild_id="10")
-    assert migrate_v7_to_v8(arms.root) is None
+    assert migrate_v8_to_v9(arms.root) is None
 
 
 def test_migration_failure_leaves_original_version_and_backup(setup):
@@ -84,3 +86,22 @@ def test_migration_failure_leaves_original_version_and_backup(setup):
     with arms.connect(readonly=True) as db:
         assert db.execute("SELECT version FROM meta").fetchone()[0] == 1
     assert len(list(arms.root.glob("arms-v1-backup-*.sqlite3"))) == 1
+
+
+def test_v9_migration_preserves_pending_discussion_payload(setup):
+    from test_discussion_worker import answered
+    arms, spaces = setup
+    ident, delivery = answered(arms)
+    arms.confirm_delivery(delivery["delivery_id"], "200")
+    with arms.connect() as db:
+        original = db.execute("SELECT payload_json FROM discussion_jobs").fetchone()[0]
+        db.execute("ALTER TABLE discussion_jobs RENAME TO future_discussion_jobs")
+        db.execute("CREATE TABLE discussion_jobs(turn_id TEXT PRIMARY KEY REFERENCES turns(id),scope_json TEXT NOT NULL,payload_json TEXT NOT NULL,state TEXT NOT NULL,created_at TEXT NOT NULL)")
+        db.execute("INSERT INTO discussion_jobs SELECT turn_id,scope_json,payload_json,state,created_at FROM future_discussion_jobs")
+        db.execute("DROP TABLE future_discussion_jobs")
+        db.execute("UPDATE meta SET version=8")
+    assert migrate_v8_to_v9(arms.root).is_file()
+    reopened = ArmsRegistry(arms.root, spaces)
+    with reopened.connect(readonly=True) as db:
+        row = db.execute("SELECT * FROM discussion_jobs").fetchone()
+        assert row["id"] == ident + ":1" and row["payload_json"] == original and row["state"] == "QUEUED"

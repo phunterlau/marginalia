@@ -19,23 +19,28 @@ class DiscussionWorker:
             row = db.execute("SELECT * FROM discussion_jobs WHERE state='QUEUED' ORDER BY created_at,turn_id LIMIT 1").fetchone()
             if row is None: return None
             row = dict(row)
-            db.execute("UPDATE discussion_jobs SET state='RUNNING' WHERE turn_id=?", (row["turn_id"],))
+            db.execute("UPDATE discussion_jobs SET state='RUNNING' WHERE id=?", (row["id"],))
         try:
             data = json.loads(row["scope_json"])
             data["read_spaces"] = tuple(data["read_spaces"])
             scope = ContextScope(**data)
             payload = json.loads(row["payload_json"])
-            await self.access.authorize_turn(row["turn_id"])
+            if not payload["deleted"]: await self.access.authorize_turn(row["turn_id"])
             def project():
                 if self.stopping: raise RuntimeError("Discussion worker stopping")
+                if payload["deleted"]:
+                    # Authenticated exact-message retractions only remove search
+                    # visibility. Do not require a deleted author's membership
+                    # to remain active to honor the tombstone in its old space.
+                    return self.registry.spaces.open(scope.writable_space).record_discussion(payload)
                 return self.registry.spaces.record_discussion(scope, payload)
             await asyncio.to_thread(project)
             with self.registry.connect() as db:
-                db.execute("UPDATE discussion_jobs SET state='COMPLETE' WHERE turn_id=?", (row["turn_id"],))
+                db.execute("UPDATE discussion_jobs SET state='COMPLETE' WHERE id=?", (row["id"],))
                 db.execute("INSERT INTO events(kind,subject,at) VALUES ('discussion_projected',?,?)", (row["turn_id"], now()))
             return row["turn_id"]
         except BaseException:
             with self.registry.connect() as db:
-                db.execute("UPDATE discussion_jobs SET state='NEEDS_ATTENTION' WHERE turn_id=?", (row["turn_id"],))
+                db.execute("UPDATE discussion_jobs SET state='NEEDS_ATTENTION' WHERE id=?", (row["id"],))
                 db.execute("INSERT INTO events(kind,subject,at) VALUES ('discussion_uncertain',?,?)", (row["turn_id"], now()))
             raise

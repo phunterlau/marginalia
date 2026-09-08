@@ -16,7 +16,8 @@ authorization before writing only to the writable space. Scoped reads use
 `SpaceRegistry.read(scope, space_id, "search_discussions", query)`. Pi's existing
 read-only Arms tools expose it as `research_discussed`, with explicit space and
 strict query/result bounds. Arms projects confirmed deliveries through a durable
-outbox and exposes `/discussed`; Discord edit/deletion events remain pending;
+outbox and exposes `/discussed`; raw Discord deletion events produce tombstones,
+while edit events and offline reconciliation remain pending;
 these Python APIs do not download Discord history.
 
 Schema migration 003 adds the index. Existing databases fail closed until an

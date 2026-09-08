@@ -195,6 +195,24 @@ def test_discussed_uses_destination_space_not_owners_personal_history(setup):
     asyncio.run(run())
 
 
+def test_raw_delete_handlers_ignore_untracked_messages_and_deduplicate(setup):
+    from test_discussion_worker import answered
+    arms, _ = setup
+    _, delivery = answered(arms)
+    arms.confirm_delivery(delivery["delivery_id"], "200")
+    async def run():
+        client = ResearchGateway(arms, "/unused/pi")
+        try:
+            await client.on_raw_message_delete(SimpleNamespace(guild_id=10, channel_id=20, message_id=999))
+            await client.on_raw_bulk_message_delete(SimpleNamespace(guild_id=10, channel_id=20, message_ids={100, 999}))
+            await client.on_raw_message_delete(SimpleNamespace(guild_id=10, channel_id=20, message_id=100))
+            with arms.connect(readonly=True) as db:
+                assert db.execute("SELECT COUNT(*) FROM events WHERE kind='discussion_message_deleted'").fetchone()[0] == 1
+                assert db.execute("SELECT COUNT(*) FROM discussion_jobs").fetchone()[0] == 2
+        finally: await client.close()
+    asyncio.run(run())
+
+
 def test_fork_routes_exact_delivered_answer_and_rejects_wrong_channel(setup):
     import uuid
     from research_arms.forks import fork_conversation

@@ -178,6 +178,15 @@ class ResearchGateway(discord.Client):
     async def on_resumed(self):
         self.gateway_online = True
 
+    async def on_raw_message_delete(self, payload):
+        self.registry.discussion_message_deleted(guild_id=str(payload.guild_id) if payload.guild_id else None,
+            channel_id=str(payload.channel_id), message_id=str(payload.message_id))
+
+    async def on_raw_bulk_message_delete(self, payload):
+        for ident in payload.message_ids:
+            self.registry.discussion_message_deleted(guild_id=str(payload.guild_id) if payload.guild_id else None,
+                channel_id=str(payload.channel_id), message_id=str(ident))
+
     async def on_message(self, message):
         if self.access is None or self.user is None or message.author.bot or message.webhook_id:
             return
