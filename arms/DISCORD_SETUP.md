@@ -173,7 +173,11 @@ Only confirmed bot-directed answers are projected, without provider calls. Resul
 identify the question author and assistant separately and link to their messages.
 Private DM discussions are not searched from shared channels, even for the owner.
 Missing results do not prove a topic was never discussed: historical backfill and
-Discord edit integration remain pending. Raw message deletions remove tracked
+complete edit reconciliation remain pending. Verified post-delivery message edits
+update discussion search without changing Pi's original turn. Edited questions
+are labeled as newer than the original answer. Unverifiable edits stay unavailable
+for search after projection; pre-delivery edits and attachment-backed answer edits
+still need reconciliation. Raw message deletions remove tracked
 exchanges from search through the durable outbox, but do not erase Pi context or
 old local revisions. Deletions missed while offline still need reconciliation.
 Brain schema 003 and Arms schema 9 require explicit backed-up migration on existing databases. No migration is run

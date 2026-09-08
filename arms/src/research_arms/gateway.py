@@ -25,6 +25,7 @@ from .thread_worker import PaperThreadWorker
 from .reviews import CardReviews
 from .publication_commands import handle as handle_publication
 from .discussion_worker import DiscussionWorker
+from .discussion_edits import observe as observe_discussion_edit
 from .forks import fork_conversation
 from .registry import snowflake
 from research_brain.jobs import SpendingLimits
@@ -181,6 +182,15 @@ class ResearchGateway(discord.Client):
     async def on_raw_message_delete(self, payload):
         self.registry.discussion_message_deleted(guild_id=str(payload.guild_id) if payload.guild_id else None,
             channel_id=str(payload.channel_id), message_id=str(payload.message_id))
+
+    async def on_raw_message_edit(self, payload):
+        if self.access is None or self.rest is None or self.user is None or not payload.data.get("edited_timestamp"):
+            return  # Embed-only updates are not content edits.
+        try:
+            await observe_discussion_edit(self, guild=str(payload.guild_id) if payload.guild_id else None,
+                channel=str(payload.channel_id), message=str(payload.message_id), edited_at=payload.data["edited_timestamp"])
+        except Exception:
+            pass  # Known edits remain explicitly unavailable until reconciliation.
 
     async def on_raw_bulk_message_delete(self, payload):
         for ident in payload.message_ids:

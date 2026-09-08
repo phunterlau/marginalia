@@ -17,7 +17,8 @@ authorization before writing only to the writable space. Scoped reads use
 read-only Arms tools expose it as `research_discussed`, with explicit space and
 strict query/result bounds. Arms projects confirmed deliveries through a durable
 outbox and exposes `/discussed`; raw Discord deletion events produce tombstones,
-while edit events and offline reconciliation remain pending;
+and verified post-delivery edits create labeled revisions. Unavailable edited
+content is excluded from search. Complete offline reconciliation remains pending;
 these Python APIs do not download Discord history.
 
 Schema migration 003 adds the index. Existing databases fail closed until an

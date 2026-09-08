@@ -346,7 +346,7 @@ projection requires attention rather than silently replaying. Shutdown joins the
 writer and local recovery quarantines RUNNING projection jobs. Original question
 channels are preserved for paper-starter replies; unknown legacy locations are
 not invented. Migration does not backfill historical deliveries. Brain schema 003
-must be migrated explicitly before projection. Edits, historical
+must be migrated explicitly before projection. Historical
 backfill/retry controls remain pending. Pi can use `research_discussed` with an
 explicit permitted space, a query of at most 2000 characters, and at most three
 results. The same turn-bound credentials, revocation checks and output limits
@@ -354,7 +354,7 @@ apply. Results label discussion as non-scientific memory and identify question
 authors separately from assistant answers. Scientific recall is unchanged.
 
 This is a partial pilot, **not a validated live deployment**. Complete Discord
-recovery controls, discussion edit events and reactions still need integration.
+recovery controls, complete discussion reconciliation and reactions still need integration.
 
 Authenticated raw single/bulk Discord deletion events match only already tracked
 message IDs and their exact guild/channel. They append idempotent tombstones to
@@ -363,8 +363,20 @@ side removes the exchange from discussion search after projection, including whe
 the question was deleted before answer confirmation. Deletion retractions remain
 effective after membership changes because they only reduce search visibility
 in the original space. Original turns, revision history and Pi context are not
-erased, and nothing is replayed to Pi. Offline deletion reconciliation and message
-edit handling remain pending; deletion is not a promise of provider erasure.
+erased, and nothing is replayed to Pi. Offline deletion reconciliation remains
+pending; deletion is not a promise of provider erasure.
+
+Raw post-delivery message edit events queue an unavailable revision, then fetch
+only the exact tracked message after fresh access checks. Author/channel identity
+and edit timestamp must verify before the current content is reindexed. Question
+attachments use the existing bounded UTF-8 reader. Bot-answer attachments are not
+substituted with their short delivery wrapper: they stay unavailable pending
+reconciliation. Discussion results label edited questions as later than the
+assistant's original answer. Duplicate/stale edits do not overwrite a newer
+revision, and edits cannot undo deletion. Failed fetches or oversized edits remove
+stale content from search after projection. Pi turns and session history are
+never rewritten or replayed. Edits before confirmed delivery, attachment-backed
+answer edits and edits missed while offline still need reconciliation.
 The delivery and permissions paths are mock-tested, not live-tested. There is no
 HTTP listener, installed daemon or LaunchAgent.
 

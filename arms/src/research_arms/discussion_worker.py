@@ -25,10 +25,11 @@ class DiscussionWorker:
             data["read_spaces"] = tuple(data["read_spaces"])
             scope = ContextScope(**data)
             payload = json.loads(row["payload_json"])
-            if not payload["deleted"]: await self.access.authorize_turn(row["turn_id"])
+            retract = payload["deleted"] or payload.get("question_unavailable") or payload.get("answer_unavailable")
+            if not retract: await self.access.authorize_turn(row["turn_id"])
             def project():
                 if self.stopping: raise RuntimeError("Discussion worker stopping")
-                if payload["deleted"]:
+                if retract:
                     # Authenticated exact-message retractions only remove search
                     # visibility. Do not require a deleted author's membership
                     # to remain active to honor the tombstone in its old space.

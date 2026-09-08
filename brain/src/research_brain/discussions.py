@@ -8,10 +8,16 @@ import re
 FIELDS = {"id", "revision", "conversation_id", "author", "question", "answer", "guild_id",
           "channel_id", "message_id", "answer_message_id", "pi_entry_id", "deleted", "recorded_at"}
 IDENTITY = ("id", "conversation_id", "author", "guild_id", "channel_id", "message_id", "answer_message_id", "pi_entry_id")
+OPTIONAL = {"question_channel_id", "question_edited_at", "answer_edited_at", "question_unavailable", "answer_unavailable"}
 
 
 def validate(record):
-    if not isinstance(record, dict) or set(record) - {"question_channel_id"} != FIELDS: raise ValueError("Invalid discussion record")
+    if not isinstance(record, dict) or set(record) - OPTIONAL != FIELDS: raise ValueError("Invalid discussion record")
+    for key in ("question_unavailable", "answer_unavailable"):
+        if key in record and type(record[key]) is not bool: raise ValueError("Invalid edit availability")
+    for key in ("question_edited_at", "answer_edited_at"):
+        if key in record and (not isinstance(record[key], str) or len(record[key]) > 50 or datetime.fromisoformat(record[key]).tzinfo is None):
+            raise ValueError("Invalid edit timestamp")
     if record.get("question_channel_id") is not None and (not isinstance(record["question_channel_id"], str) or not re.fullmatch(r"[0-9]{1,20}", record["question_channel_id"])):
         raise ValueError("Invalid question channel")
     for key in ("id", "conversation_id", "author", "pi_entry_id"):
@@ -57,7 +63,7 @@ def record(store, payload):
             db.execute("INSERT INTO discussion_heads VALUES (?,?) ON CONFLICT(record_id) DO UPDATE SET revision=excluded.revision",
                 (payload["id"], payload["revision"]))
             db.execute("DELETE FROM discussion_fts WHERE record_id=?", (payload["id"],))
-            if not payload["deleted"]:
+            if not payload["deleted"] and not payload.get("question_unavailable") and not payload.get("answer_unavailable"):
                 db.execute("INSERT INTO discussion_fts VALUES (?,?,?)", (payload["id"], payload["question"], payload["answer"]))
     return {"id": payload["id"], "revision": payload["revision"], "created": True}
 
@@ -85,5 +91,10 @@ def search(store, query, *, limit=5):
                "record_type": "discussion", "scientific_review_state": "NOT_SCIENTIFIC_MEMORY"})
         items[-1]["question_author"] = value["author"]
         items[-1]["answer_author"] = "assistant"
+        items[-1]["question_edited_at"] = value.get("question_edited_at")
+        items[-1]["answer_edited_at"] = value.get("answer_edited_at")
+        items[-1]["edit_notice"] = ("The question was edited after the answer; the assistant answered an earlier version."
+            if value.get("question_edited_at") else "The answer message was edited after delivery."
+            if value.get("answer_edited_at") else None)
     return {"items": items, "more_available": len(rows) > limit,
             "notice": "Search covers recorded bot-directed exchanges only. No match does not prove a topic was never discussed. Discussion is not accepted scientific evidence."}
