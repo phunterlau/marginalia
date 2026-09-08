@@ -224,7 +224,15 @@ Replies to the starter route into the paper thread without switching the parent
 channel's selected conversation. Pi receives the space, document and pinned
 revision as its starting point. Message/thread dispatches have durable checkpoints;
 uncertain outcomes require reconciliation and are never automatically resent.
-Automatic creation after ingestion and user-facing reconciliation remain pending.
+`/paper reconcile job_id:... starter_message_id:...` recovers a settled uncertain
+operation by reading the exact existing starter and thread. It verifies the
+bot author, request nonce, parent, guild and thread identity, then restores the
+local session binding without sending or creating anything on Discord. Replays
+are idempotent. Missing resources or a missing nonce stay unresolved; Discord
+documents nonce as optional, so this is not guaranteed recovery for every remote
+message. In-flight checkpoints after process termination require trusted offline
+recovery first. A conflicting preexisting session also requires local inspection.
+Automatic creation after ingestion and recovery of missing remote resources remain pending.
 This command creates a starter but does not pin the Discord message.
 
 `--run-approved-absorption` opts the Gateway into background paid processing of

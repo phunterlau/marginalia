@@ -71,3 +71,53 @@ def test_unknown_message_send_never_repeats(setup):
         with arms.connect(readonly=True) as db:
             assert db.execute("SELECT state FROM paper_threads").fetchone()[0] == "NEEDS_ATTENTION"
     asyncio.run(run())
+
+
+class LostThreadResponse(Client):
+    def __init__(self, corrupt=None):
+        super().__init__()
+        self.corrupt, self.remote = corrupt, {}
+    async def post(self, path, *, json):
+        result = await super().post(path, json=json)
+        self.remote[("channels/20/messages/300" if path.endswith("/messages") else "channels/300")] = result.json()
+        if path.endswith("/threads"): raise asyncio.TimeoutError()
+        return result
+    async def get(self, path):
+        result = dict(self.remote[path])
+        if self.corrupt == "nonce" and "nonce" in result: result["nonce"] = "123"
+        if self.corrupt == "no_nonce": result.pop("nonce", None)
+        if self.corrupt == "parent" and "parent_id" in result: result["parent_id"] = "99"
+        if self.corrupt == "author" and "author" in result: result["author"] = {"id": "999"}
+        return SimpleNamespace(status_code=404 if self.corrupt == "missing" else 200, json=lambda: result)
+
+
+def test_reconcile_existing_thread_is_read_only_remote_and_idempotent(setup):
+    arms, _ = setup
+    async def run():
+        client = LostThreadResponse()
+        threads = PaperThreads(arms, Access(), client, "123", service_factory=Service)
+        with pytest.raises(asyncio.TimeoutError): await threads.ensure("1", "10", "20", "project", "job_x")
+        recovered = await threads.reconcile("1", "10", "20", "project", "job_x", "300")
+        replay = await threads.reconcile("1", "10", "20", "project", "job_x", "300")
+        assert recovered["conversation_id"] == replay["conversation_id"]
+        assert len(client.calls) == 2
+        with arms.connect(readonly=True) as db:
+            assert db.execute("SELECT COUNT(*) FROM conversations").fetchone()[0] == 1
+            assert db.execute("SELECT COUNT(*) FROM events WHERE kind='paper_thread_complete'").fetchone()[0] == 1
+    asyncio.run(run())
+
+
+@pytest.mark.parametrize("corrupt", ["nonce", "no_nonce", "parent", "author", "missing"])
+def test_reconcile_rejects_unverified_remote_resources(setup, corrupt):
+    from research_arms import Unavailable
+    arms, _ = setup
+    async def run():
+        client = LostThreadResponse(corrupt)
+        threads = PaperThreads(arms, Access(), client, "123", service_factory=Service)
+        with pytest.raises(asyncio.TimeoutError): await threads.ensure("1", "10", "20", "project", "job_x")
+        with pytest.raises(Unavailable): await threads.reconcile("1", "10", "20", "project", "job_x", "300")
+        assert len(client.calls) == 2
+        with arms.connect(readonly=True) as db:
+            assert db.execute("SELECT COUNT(*) FROM conversations").fetchone()[0] == 0
+            assert db.execute("SELECT state FROM paper_threads").fetchone()[0] == "NEEDS_ATTENTION"
+    asyncio.run(run())

@@ -100,7 +100,11 @@ login, with built-in tools and implicit resources disabled.
    retry is performed. In a configured shared channel, `/paper thread job_id:...`
    creates its starter and dedicated thread. Repeating the command reuses the
    same revision's thread. Different revisions get different threads. Uncertain
-   sends require local reconciliation; do not manually repeat Discord writes.
+   sends can be checked with `/paper reconcile job_id:... starter_message_id:...`.
+   This only adopts verified existing Discord resources; it never resends. Missing
+   messages, threads or verification fields remain unresolved. In-flight states
+   after a killed process and conflicting sessions still need local inspection;
+   do not manually repeat Discord writes.
 
 Paid execution is off by default. With `--run-approved-absorption`, the worker
 considers only Gateway submission jobs that already have an explicit approval.

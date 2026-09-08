@@ -11,6 +11,65 @@ class PaperThreads:
         self.registry, self.access, self.client = registry, access, client
         self.bot_user_id, self.service_factory = snowflake(bot_user_id), service_factory
 
+    def _source(self, actor, guild, parent, space, job_id):
+        service = self.service_factory(self.registry, actor, space)
+        job = service.jobs.show(job_id)
+        document, revision = job["plan"]["document_id"], job["plan"]["source"]["version_label"]
+        if not isinstance(revision, str) or not re.fullmatch(r"v[1-9][0-9]*", revision): raise Unavailable()
+        metadata = service.jobs.brain.get_document(document)
+        if metadata is None: raise Unavailable()
+        title = " ".join(metadata["title"].split())[:300]
+        ident = "paper_thread_" + hashlib.sha256(encode([space, guild, parent, document, revision]).encode()).hexdigest()[:32]
+        return ident, document, revision, title
+
+    async def reconcile(self, actor, guild, parent, space, job_id, starter_id):
+        """Adopt verified existing remote resources; never repeat a Discord write.
+
+        Only settled uncertain operations qualify. In-flight checkpoints from a
+        killed process require trusted offline recovery before this operation.
+        Missing or unverifiable remote resources remain uncertain.
+        """
+        for value in (actor, guild, parent, starter_id): snowflake(value)
+        await self.access.authorize(actor, channel_id=parent, guild_id=guild, expected_space=space)
+        ident, _, revision, _ = self._source(actor, guild, parent, space, job_id)
+        with self.registry.connect(readonly=True) as db:
+            row = db.execute("SELECT * FROM paper_threads WHERE id=?", (ident,)).fetchone()
+            if row is None or row["state"] not in {"NEEDS_ATTENTION", "COMPLETE"}: raise Unavailable()
+            if row["starter_id"] not in (None, starter_id) or row["thread_id"] not in (None, starter_id): raise Unavailable()
+        response = await self.client.get(f"channels/{parent}/messages/{starter_id}")
+        if response.status_code != 200: raise Unavailable()
+        message = response.json()
+        nonce = str(int(hashlib.sha256(ident.encode()).hexdigest()[:16], 16))
+        if (message.get("id") != starter_id or message.get("channel_id") != parent
+                or message.get("author", {}).get("id") != self.bot_user_id
+                or str(message.get("nonce")) != nonce): raise Unavailable()
+        response = await self.client.get(f"channels/{starter_id}")
+        if response.status_code != 200: raise Unavailable()
+        thread = response.json()
+        if (thread.get("id") != starter_id or thread.get("parent_id") != parent
+                or thread.get("guild_id") != guild or thread.get("type") not in (10, 11)): raise Unavailable()
+        await self.access.authorize(actor, channel_id=starter_id, guild_id=guild, expected_space=space)
+        self._source(actor, guild, parent, space, job_id)  # Refresh maintainer access after network IO.
+        if row["state"] == "COMPLETE":
+            return dict(row)
+        self._state(ident, "NEEDS_ATTENTION", "RECONCILING", starter_id=starter_id, thread_id=starter_id)
+        try:
+            expected = "conv_" + hashlib.sha256(encode([actor, guild, starter_id, starter_id]).encode()).hexdigest()[:32]
+            with self.registry.connect(readonly=True) as db:
+                # A partial creation by a different maintainer must not silently
+                # acquire a second session or select an unrelated conversation.
+                if db.execute("SELECT 1 FROM conversations WHERE guild_id=? AND channel_id=? AND id!=?",
+                              (guild, starter_id, expected)).fetchone(): raise Unavailable()
+            conversation = self.registry.new_conversation(actor, channel_id=starter_id, guild_id=guild,
+                parent_channel_id=parent, name=f"Paper {revision}", request_id=starter_id)
+            await self.access.authorize(actor, channel_id=starter_id, guild_id=guild, expected_space=space)
+            self.registry.select_conversation(conversation, actor, channel_id=starter_id, guild_id=guild)
+            self._state(ident, "RECONCILING", "COMPLETE", conversation_id=conversation)
+            return {"id": ident, "thread_id": starter_id, "conversation_id": conversation, "state": "COMPLETE"}
+        except BaseException:
+            self._state(ident, "RECONCILING", "NEEDS_ATTENTION")
+            raise
+
     def _state(self, ident, expected, state, **fields):
         if set(fields) - {"starter_id", "thread_id", "conversation_id"}: raise ValueError("Invalid checkpoint")
         with self.registry.connect() as db:
@@ -24,14 +83,7 @@ class PaperThreads:
     async def ensure(self, actor, guild, parent, space, job_id):
         snowflake(actor), snowflake(guild), snowflake(parent)
         await self.access.authorize(actor, channel_id=parent, guild_id=guild, expected_space=space, require_thread_creation=True)
-        service = self.service_factory(self.registry, actor, space)
-        job = service.jobs.show(job_id)
-        document, revision = job["plan"]["document_id"], job["plan"]["source"]["version_label"]
-        if not isinstance(revision, str) or not re.fullmatch(r"v[1-9][0-9]*", revision): raise Unavailable()
-        metadata = service.jobs.brain.get_document(document)
-        if metadata is None: raise Unavailable()
-        title = " ".join(metadata["title"].split())[:300]
-        ident = "paper_thread_" + hashlib.sha256(encode([space, guild, parent, document, revision]).encode()).hexdigest()[:32]
+        ident, document, revision, title = self._source(actor, guild, parent, space, job_id)
         with self.registry.connect() as db:
             db.execute("BEGIN IMMEDIATE")
             db.execute("INSERT OR IGNORE INTO paper_threads VALUES (?,?,?,?,?,?,'READY',NULL,NULL,NULL,?)",

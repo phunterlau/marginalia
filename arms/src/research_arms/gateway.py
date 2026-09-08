@@ -76,6 +76,10 @@ class ResearchGateway(discord.Client):
         async def paper_thread(interaction: discord.Interaction, job_id: str):
             await self.execute(interaction, "paper_thread", job_id=job_id)
 
+        @paper.command(name="reconcile", description="Recover a paper thread from verified existing Discord resources")
+        async def paper_reconcile(interaction: discord.Interaction, job_id: str, starter_message_id: str):
+            await self.execute(interaction, "paper_reconcile", job_id=job_id, starter_message_id=starter_message_id)
+
         @paper.command(name="approve", description="Authorize the exact absorption plan for later paid execution")
         async def paper_approve(interaction: discord.Interaction, job_id: str, plan_digest: str, confirm: bool = False):
             await self.execute(interaction, "paper_approve", job_id=job_id, plan_digest=plan_digest, confirm=confirm)
@@ -232,11 +236,15 @@ class ResearchGateway(discord.Client):
             await authorize()
             self.registry.select_conversation(ident, actor, channel_id=channel, guild_id=guild)
             return self.registry.resolve_conversation(actor, channel_id=channel, guild_id=guild)
-        if command == "paper_thread":
+        if command in {"paper_thread", "paper_reconcile"}:
             if guild is None: raise ValueError("Paper threads require a shared guild channel")
             parent = destination["parent_channel_id"] or channel
-            return await PaperThreads(self.registry, self.access, self.rest, str(self.user.id),
-                service_factory=self.absorption_factory).ensure(actor, guild, parent, destination["space_id"], options["job_id"])
+            threads = PaperThreads(self.registry, self.access, self.rest, str(self.user.id),
+                service_factory=self.absorption_factory)
+            if command == "paper_reconcile":
+                return await threads.reconcile(actor, guild, parent, destination["space_id"],
+                    options["job_id"], options["starter_message_id"])
+            return await threads.ensure(actor, guild, parent, destination["space_id"], options["job_id"])
         if command in {"paper_add", "paper_submission"}:
             if self.submissions is None: raise Unavailable()
             ident = options.get("submission_id")
