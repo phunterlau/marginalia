@@ -1,4 +1,6 @@
 import asyncio
+from concurrent.futures import ThreadPoolExecutor
+import sqlite3
 
 import pytest
 
@@ -9,6 +11,28 @@ from test_registry import setup
 
 class Access:
     async def authorize(self, *args, **kwargs): return {}
+
+
+def test_concurrent_source_retries_enqueue_once_and_event_failure_rolls_back(setup):
+    from research_arms import Unavailable
+    arms, _ = setup
+    queue = PaperSubmissions(arms, Access())
+    ident = queue.enqueue("1", "30", None, "alice", "100", "https://arxiv.org/abs/2506.24056v2", limits=SpendingLimits())
+    with arms.connect() as db:
+        db.execute("UPDATE paper_submissions SET state='NEEDS_ATTENTION' WHERE id=?", (ident,))
+        db.execute("CREATE TRIGGER fail_retry BEFORE INSERT ON events WHEN NEW.kind='source_retry_requested' BEGIN SELECT RAISE(ABORT, 'injected failure'); END")
+    with pytest.raises(sqlite3.IntegrityError): queue.retry(ident, "1", "30", None, "alice")
+    with arms.connect() as db:
+        assert db.execute("SELECT state FROM paper_submissions WHERE id=?", (ident,)).fetchone()[0] == "NEEDS_ATTENTION"
+        db.execute("DROP TRIGGER fail_retry")
+    def retry(_):
+        try: return queue.retry(ident, "1", "30", None, "alice")
+        except Unavailable: return None
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        results = list(pool.map(retry, range(2)))
+    assert results.count(ident) == 1 and results.count(None) == 1
+    with arms.connect(readonly=True) as db:
+        assert db.execute("SELECT count(*) FROM events WHERE kind='source_retry_requested'").fetchone()[0] == 1
 
 
 def test_explicit_source_retry_preserves_request_and_audits_once(setup):
@@ -71,3 +95,6 @@ def test_failure_and_revocation_do_not_replay_source_work(setup):
     asyncio.run(run())
     with arms.connect(readonly=True) as db:
         assert db.execute("SELECT state FROM paper_submissions WHERE id=?", (ident,)).fetchone()[0] == "NEEDS_ATTENTION"
+    with pytest.raises(PermissionError): queue.retry(ident, "2", "21", "10", "project")
+    with arms.connect(readonly=True) as db:
+        assert db.execute("SELECT count(*) FROM events WHERE kind='source_retry_requested'").fetchone()[0] == 0
