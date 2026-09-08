@@ -58,8 +58,9 @@ IDs a future supervisor must abort. It does not itself terminate processes.
 `research_arms.pi_rpc.PiRPC` launches Pi without a shell, uses an exact session
 UUID and backend session directory, disables built-in tools and implicit
 extensions/skills/templates/context files, and disables automatic retries. This
-initial client exposes **no research tools yet**. A scope-bound extension and
-supervisor still need to be connected. Environment API keys are excluded; Pi's
+client optionally loads exactly three scope-bound research tools through
+`ToolBridge` and the bundled extension. A supervisor still needs to connect the
+worker lifecycle. Environment API keys are excluded; Pi's
 configured login is the intended authentication route for future synthesis.
 
 Responses are correlated by request ID. Frames use bounded LF-only JSONL.
@@ -68,6 +69,16 @@ terminate the client and require preserving uncertainty, never automatic replay.
 `abort` clears Pi's queue first. Raw bash/session-switch/export RPC commands are
 unavailable. Tests use synthetic subprocesses. A native installed-Pi startup
 check also succeeded with zero model prompts and an isolated configuration.
+
+The bridge uses a private local Unix socket with a per-turn rotating capability.
+Only the supervisor binds a running turn; model arguments cannot choose a
+principal, session, turn or filesystem path. The extension exposes only
+`research_recall`, `research_evidence`, and `research_object`, each requiring a
+space identity. Pi startup checks the exact active tool set via its supported
+RPC notification channel (ordinary stdout is intercepted by Pi). Run the
+optional installed-Pi startup test with `ARMS_TEST_PI=/absolute/path/to/pi`.
+Socket tests verify shared/private isolation and revocation. Native startup
+verification proves loading, not a model-driven tool call or a complete turn.
 
 Delivery claims persist SENDING before external dispatch and distinguish UNKNOWN
 from DELIVERED. Confirmations are idempotent; uncertain sends require explicit
@@ -81,7 +92,7 @@ quarantines interrupted conversations, and marks interrupted sends UNKNOWN.
 
 This is an offline control-plane foundation, **not a running Discord bot**.
 Gateway authentication/handlers, default active-DM and paper-thread routing,
-forks, the Pi process pool and scope-bound tools, user-facing stop/recovery,
+forks, the Pi process pool, user-facing stop/recovery,
 actual delivery and remote reconciliation, publication consent, scientific reviews,
 discussion search and reactions are not yet connected. Outbox insertion is
 tested, not external delivery. There is no HTTP listener, daemon or LaunchAgent.

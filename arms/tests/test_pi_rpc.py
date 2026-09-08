@@ -1,11 +1,52 @@
 import asyncio
 import json
+import os
 import sys
 import uuid
 
 import pytest
 
 from research_arms.pi_rpc import PiRPC, PiProtocolError, launch_arguments
+
+
+@pytest.mark.parametrize("tools,valid", [
+    (["research_recall", "research_object", "research_evidence"], True),
+    (["research_recall", "bash"], False),
+    (["research_recall", "research_object", "research_evidence", "read"], False),
+])
+def test_supported_readiness_notification_checks_exact_tools(tools, valid):
+    async def run():
+        event = {"type": "extension_ui_request", "method": "notify",
+                 "message": json.dumps({"type": "arms_tools_ready", "tools": tools})}
+        code = "import json; print(" + repr(json.dumps(event)) + ",flush=True)\n" + FAKE
+        client = await fake(code)
+        try:
+            if valid:
+                await client.command("get_state")
+                assert client.tools_ready.is_set()
+            else:
+                with pytest.raises(PiProtocolError):
+                    await client.command("get_state")
+                assert not client.tools_ready.is_set()
+        finally:
+            await client.close()
+    asyncio.run(run())
+
+
+@pytest.mark.skipif(not os.environ.get("ARMS_TEST_PI"), reason="Optional installed Pi startup test")
+def test_native_pi_loads_only_research_tools_without_model_call(tmp_path):
+    async def run():
+        # An existing inert file is sufficient: startup must not access the
+        # bridge or make a model call. Tool execution is tested separately.
+        client = await PiRPC.start(os.environ["ARMS_TEST_PI"], tmp_path / "sessions",
+            str(uuid.uuid4()), agent_directory=tmp_path / "empty-agent",
+            tool_auth_file=__file__)
+        try:
+            assert client.tools_ready.is_set()
+            assert (await client.command("get_state"))["messageCount"] == 0
+        finally:
+            await client.close()
+    asyncio.run(run())
 
 
 FAKE = r'''

@@ -36,13 +36,20 @@ class PiRPC:
         self.pending = {}
         self.events = asyncio.Queue(maxsize=256)
         self.failure = None
+        self.stderr_bytes = 0
+        self.tools_ready = asyncio.Event()
         self.prompt_lock = asyncio.Lock()
         self.reader = asyncio.create_task(self._read())
         self.stderr_reader = asyncio.create_task(self._drain_stderr())
 
     @classmethod
-    async def start(cls, executable, session_directory, session_id, *, agent_directory=None):
+    async def start(cls, executable, session_directory, session_id, *, agent_directory=None, tool_auth_file=None):
         argv = launch_arguments(executable, session_directory, session_id)
+        if tool_auth_file is not None:
+            auth_path = Path(tool_auth_file).resolve(strict=True)
+            argv[argv.index("--no-tools")] = "--no-builtin-tools"
+            argv.extend(["--tools", "research_recall,research_evidence,research_object", "--extension",
+                         str(Path(__file__).parent / "integrations" / "research-tools.ts")])
         directory = Path(session_directory)
         directory.mkdir(parents=True, exist_ok=True, mode=0o700)
         # Do not pass API keys or unrelated environment secrets to Pi. Its
@@ -50,6 +57,8 @@ class PiRPC:
         env = {key: os.environ[key] for key in ("PATH", "HOME", "SHELL", "TMPDIR", "LANG", "TERM") if key in os.environ}
         if agent_directory is not None:
             env["PI_CODING_AGENT_DIR"] = str(Path(agent_directory).resolve())
+        if tool_auth_file is not None:
+            env["ARMS_TOOL_AUTH_FILE"] = str(auth_path)
         process = await asyncio.create_subprocess_exec(*argv, cwd=directory, env=env,
             stdin=asyncio.subprocess.PIPE, stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE, limit=cls.MAX_FRAME + 1)
@@ -60,6 +69,10 @@ class PiRPC:
             state = await client.command("get_state")
             if state.get("sessionId") != session_id or state.get("isStreaming") or state.get("pendingMessageCount", 0):
                 raise PiProtocolError("Pi session mismatch or unexpectedly active startup")
+            if tool_auth_file is not None:
+                await asyncio.wait_for(client.tools_ready.wait(), 20)
+                if client.failure:
+                    raise client.failure
             return client
         except BaseException:
             await client.close()
@@ -68,8 +81,8 @@ class PiRPC:
     async def _drain_stderr(self):
         # Drain so errors cannot deadlock the subprocess; do not propagate raw
         # stderr (which can contain paths or authentication details) to users.
-        while await self.process.stderr.read(4096):
-            pass
+        while chunk := await self.process.stderr.read(4096):
+            self.stderr_bytes += len(chunk)
 
     def _fail(self, message):
         self.failure = PiProtocolError(message)
@@ -92,7 +105,14 @@ class PiRPC:
                 event = json.loads(frame)
                 if not isinstance(event, dict):
                     raise PiProtocolError("Pi frame must be an object")
-                if event.get("type") == "response":
+                if event.get("type") == "extension_ui_request" and event.get("method") == "notify":
+                    notice = json.loads(event.get("message", "{}"))
+                    if notice.get("type") != "arms_tools_ready":
+                        raise PiProtocolError("Unexpected Pi notification")
+                    if sorted(notice.get("tools", [])) != ["research_evidence", "research_object", "research_recall"]:
+                        raise PiProtocolError("Unexpected active Pi tools")
+                    self.tools_ready.set()
+                elif event.get("type") == "response":
                     future = self.pending.get(event.get("id"))
                     if future is not None and not future.done():
                         future.set_result(event)
