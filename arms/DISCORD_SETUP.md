@@ -1,7 +1,7 @@
 # Foreground Discord pilot
 
 This is a partial pilot: conversation slash commands are implemented; paper
-commands, reactions and publication controls
+ingestion commands, reactions and publication controls
 are still pending. Do not treat it as the completed team-sharing release.
 
 ## Create a dedicated application
@@ -75,6 +75,9 @@ login, with built-in tools and implicit resources disabled.
    exact stored answer as a bounded quote. Unknown reply anchors do not fall back
    to the active session. Unrelated channel chatter is not retained. Paper-starter
    reply routing is still pending.
+7. `/paper status`, `/paper brief`, `/paper cards` and `/paper evidence` read
+   exact document/block IDs from the current space. They do not spend tokens.
+   Brief is currently a metadata overview, not a generated paper summary.
 
 Do not submit sensitive private information in shared command arguments. Shared
 means the configured channel audience, not just the person invoking a command.

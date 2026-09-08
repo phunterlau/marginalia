@@ -43,6 +43,35 @@ class Brain:
     def get_evidence(self, block_id: str) -> dict[str, Any] | None:
         return self.store.get_evidence(block_id)
 
+    def paper_overview(self, document_id: str) -> dict[str, Any]:
+        """Bounded metadata-only view; not a model-generated scientific summary."""
+        document = self.get_document(document_id)
+        if document is None:
+            raise LookupError("Document unavailable")
+        versions = document["versions"]
+        selected = sorted(versions, key=lambda value: (value["created_at"], value["id"]), reverse=True)[:5]
+        return {"document_id": document_id, "title": document["title"],
+            "canonical_url": document["canonical_url"], "summary_kind": "source_metadata_only",
+            "versions": [{"id": v["id"], "revision": v["version_label"],
+                "resolution_state": v["resolution_state"],
+                "compilation_ids": [c["id"] for c in v["compilations"][-3:]],
+                "omitted_compilations": max(0, len(v["compilations"]) - 3)} for v in selected],
+            "omitted_versions": max(0, len(versions) - 5),
+            "source_ready": any(v["compilations"] for v in versions),
+            "notice": "Source availability does not mean extraction completed or cards were reviewed."}
+
+    def paper_cards(self, document_id: str, *, limit: int = 6) -> dict[str, Any]:
+        if type(limit) is not int or not 1 <= limit <= 10:
+            raise ValueError("Card limit must be 1..10")
+        records = self.list_research_objects(document_id=document_id,
+            kinds=["method_card", "math_card"], limit=limit + 1)
+        return {"document_id": document_id, "more_available": len(records) > limit,
+            "cards": [{"id": r["id"], "kind": r["kind"], "title": r["title"],
+                "origin": r["origin"], "review_state": r["review_state"],
+                "body": r["body"][:500], "omitted_body_characters": max(0, len(r["body"]) - 500),
+                "evidence_count": len(r["evidence"])} for r in records[:limit]],
+            "notice": "Historical and unreviewed cards may appear; listing is not scientific acceptance."}
+
     def get_research_object(self, object_id: str) -> dict[str, Any] | None:
         return self.store.get_object_record(object_id)
 

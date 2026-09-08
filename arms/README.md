@@ -189,6 +189,14 @@ Bot-directed DMs, mentions and mapped answer replies are accepted; unrelated
 channel chatter is ignored. Paper-starter routing and paper/feedback commands
 remain pending.
 
+Read-only `/paper status`, `/paper brief`, `/paper cards` and `/paper evidence`
+now accept exact document/block IDs in the destination space without starting Pi.
+Brief/status report source metadata, not a generated scientific summary or proof
+that an absorption job completed. Card previews preserve review labels; evidence
+includes its locator and explicit text omission information. Larger command
+results are attached as JSON. `/paper add`, job approval and starter threads are
+not yet connected.
+
 This is a partial pilot, **not a validated live deployment**. Paper-thread
 routing, Discord fork/reconciliation controls, publication consent,
 scientific reviews, discussion search and reactions still need integration.

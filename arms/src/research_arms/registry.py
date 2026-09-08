@@ -376,7 +376,7 @@ class ArmsRegistry:
             if is_dataclass(item):
                 item = asdict(item)
             if isinstance(item, dict):
-                return {k: clean(v) for k, v in item.items() if k not in {"local_path", "session_path", "root"}}
+                return {k: clean(v) for k, v in item.items() if k not in {"local_path", "session_path", "source_path", "root"}}
             if isinstance(item, (list, tuple)):
                 return [clean(v) for v in item]
             return item

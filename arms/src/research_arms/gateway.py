@@ -3,6 +3,7 @@ import argparse
 import asyncio
 import json
 import hashlib
+import io
 import os
 
 import discord
@@ -13,6 +14,7 @@ from .registry import ArmsRegistry, Unavailable
 from .worker import Supervisor
 from .discord_access import DiscordAccess
 from .discord_io import DiscordSender, assemble_question, download_chunks
+from .papers import read_paper
 
 
 class ResearchGateway(discord.Client):
@@ -33,6 +35,14 @@ class ResearchGateway(discord.Client):
         self._commands()
 
     def _commands(self):
+        paper = app_commands.Group(name="paper", description="Read paper records in this destination's Brain space")
+        def paper_command(operation):
+            async def callback(interaction: discord.Interaction, identifier: str):
+                await self.execute(interaction, "paper_" + operation, identifier=identifier)
+            paper.command(name=operation, description="Read " + operation + " using an exact document or evidence ID")(callback)
+        for operation in ("status", "brief", "cards", "evidence"):
+            paper_command(operation)
+        self.tree.add_command(paper)
         @self.tree.command(name="new", description="Create and select a named research conversation")
         async def new(interaction: discord.Interaction, name: str):
             await self.execute(interaction, "new", name=name)
@@ -138,7 +148,12 @@ class ResearchGateway(discord.Client):
             await self.access.authorize(actor, channel_id=channel, guild_id=guild,
                                         expected_space=destination["space_id"])
             text = json.dumps(result, ensure_ascii=False)
-            if len(text) > 1700: text = "Operation completed; result exceeds display limit."
+            if len(text) > 1700:
+                if len(text.encode()) > 16000: raise ValueError("Result exceeds bound")
+                await interaction.edit_original_response(content="Research result attached; inspect provenance and review labels.",
+                    attachments=[discord.File(io.BytesIO(text.encode()), filename="research-result.json")],
+                    allowed_mentions=discord.AllowedMentions.none())
+                return
         except ValueError:
             text = "Invalid or oversized request. Use an exact conversation ID and at most 20,000 characters of UTF-8 text."
         except Exception:
@@ -147,6 +162,9 @@ class ResearchGateway(discord.Client):
 
     async def handle(self, command, actor, channel, guild, message_id, destination, **options):
         """Internal authenticated handler; never expose caller-supplied destination data."""
+        if command.startswith("paper_"):
+            return await asyncio.to_thread(read_paper, self.registry, actor, destination,
+                                           command.removeprefix("paper_"), options["identifier"])
         if command == "new":
             ident = self.registry.new_conversation(actor, channel_id=channel, guild_id=guild,
                 parent_channel_id=destination["parent_channel_id"], name=options["name"], request_id=message_id)
