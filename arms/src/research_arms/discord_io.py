@@ -32,6 +32,14 @@ def attachment_url(attachment, *, max_bytes=MAX_ATTACHMENT_BYTES):
     return url
 
 
+class EmptyQuestion(ValueError):
+    """A bot-directed request contained no readable question."""
+
+
+class InvalidQuestionText(ValueError):
+    """A question contained unsupported control characters."""
+
+
 async def assemble_question(text, attachments, chunks):
     """Call only after event authorization. chunks(url) yields untrusted bytes."""
     if not isinstance(text, str) or len(text) > MAX_QUESTION or len(attachments) > 4:
@@ -54,8 +62,10 @@ async def assemble_question(text, attachments, chunks):
         if len("\n\n".join(parts)) > MAX_QUESTION:
             raise ValueError("Combined question exceeds 20000 characters")
     result = "\n\n".join(parts)
-    if not result.strip() or "\x00" in result:
-        raise ValueError("Question is empty or contains NUL characters")
+    if not result.strip():
+        raise EmptyQuestion("Question is empty")
+    if "\x00" in result:
+        raise InvalidQuestionText("Question contains NUL characters")
     return result
 
 

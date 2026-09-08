@@ -5,6 +5,8 @@ import json
 import hashlib
 import io
 import os
+import logging
+import traceback
 from pathlib import Path
 import shutil
 
@@ -15,7 +17,7 @@ from research_brain.spaces import SpaceRegistry
 from .registry import ArmsRegistry, Unavailable
 from .worker import Supervisor
 from .discord_access import DiscordAccess
-from .discord_io import DiscordSender, assemble_question, download_chunks
+from .discord_io import DiscordSender, assemble_question, download_chunks, EmptyQuestion, InvalidQuestionText
 from .papers import read_paper
 from .absorption import ScopedAbsorption
 from .submissions import PaperSubmissions
@@ -37,6 +39,15 @@ from .discussion_edits import observe as observe_discussion_edit
 from .forks import fork_conversation, recover_fork
 from .registry import snowflake
 from research_brain.jobs import SpendingLimits
+
+
+def report_command_error(command, exc):
+    """Diagnostic code locations only: no exception text, locals, or user input."""
+    frames = traceback.extract_tb(exc.__traceback__)
+    logging.getLogger(__name__).warning(json.dumps({"event": "command_failed",
+        "command": command, "error_type": type(exc).__name__,
+        "locations": [{"file": Path(frame.filename).name, "function": frame.name, "line": frame.lineno}
+            for frame in frames[-6:]]}))
 
 
 class ResearchGateway(discord.Client):
@@ -193,7 +204,7 @@ class ResearchGateway(discord.Client):
             await self.execute(interaction, "space")
 
         @self.tree.command(name="ask", description="Queue a question in the selected research conversation")
-        async def ask(interaction: discord.Interaction, question: str = "", attachment: discord.Attachment | None = None):
+        async def ask(interaction: discord.Interaction, question: str, attachment: discord.Attachment | None = None):
             await self.execute(interaction, "ask", question=question, attachment=attachment)
 
         @self.tree.command(name="stop", description="Cancel queued work and stop the selected research conversation")
@@ -355,7 +366,14 @@ class ResearchGateway(discord.Client):
                     attachments=[discord.File(io.BytesIO(text.encode()), filename="research-result.json")],
                     allowed_mentions=discord.AllowedMentions.none())
                 return
-        except ValueError:
+        except EmptyQuestion as exc:
+            report_command_error(command, exc)
+            text = "No question text was received. Select /ask, fill its required question field, then send. For an attachment, enter a short instruction such as 'Answer the attached question'."
+        except InvalidQuestionText as exc:
+            report_command_error(command, exc)
+            text = "The question contains a NUL control character. Paste it as plain text or use a UTF-8 .txt/.md attachment without NUL characters."
+        except ValueError as exc:
+            report_command_error(command, exc)
             text = ("Deep dive not confirmed. Preview an active 🔬 request in this channel, then repeat with confirm:true and the exact digest. Owner/maintainer approval is required; stale or oversized source answers cannot be queued."
                     if command == "deep_dive" else
                     "Frontier unavailable or oversized. Use an exact Brain research-thread obj_ID and its returned next_cursor as after_id. Oversized records require the local reader."
@@ -371,7 +389,8 @@ class ResearchGateway(discord.Client):
                     "Comparison unavailable or oversized. Use 2–4 distinct doc_ID@vN selections in this space and a question of at most 2,000 characters. Narrow the query if necessary."
                     if command == "compare" else
                     "Invalid or oversized request. Use an exact conversation ID and at most 20,000 characters of UTF-8 text.")
-        except Exception:
+        except Exception as exc:
+            report_command_error(command, exc)
             text = "Research operation unavailable. Check your selected session, access, or backend recovery status."
         if command == "fork":
             text += f" Fork recovery request ID: {interaction.id}. Use /fork-recover only after any interrupted worker is stopped."

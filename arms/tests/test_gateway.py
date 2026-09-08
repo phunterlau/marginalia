@@ -8,6 +8,16 @@ from research_arms.gateway import ResearchGateway
 from test_registry import setup
 
 
+def test_command_diagnostics_do_not_log_exception_text_or_locals(caplog):
+    from research_arms.gateway import report_command_error
+    try:
+        raise ValueError("PRIVATE_QUESTION_AND_TOKEN_CANARY")
+    except ValueError as exc:
+        report_command_error("ask", exc)
+    assert "command_failed" in caplog.text and "ValueError" in caplog.text
+    assert "PRIVATE_QUESTION_AND_TOKEN_CANARY" not in caplog.text
+
+
 class Access:
     def __init__(self, denied=False): self.denied = denied
     async def authorize(self, actor, **kwargs):
@@ -70,6 +80,7 @@ def test_native_command_registration_is_offline_and_minimal(setup):
         assert {cmd.name for cmd in client.tree.get_command("publish").commands} == {"prepare", "show", "consent", "approve", "cancel", "run"}
         assert {cmd.name for cmd in client.tree.get_command("card").commands} == {"show", "review"}
         assert {cmd.name for cmd in client.tree.get_command("paper").commands} == {"status", "brief", "cards", "evidence", "job", "approve", "add", "submission", "retry", "thread", "reconcile"}
+        assert next(p for p in client.tree.get_command("ask").parameters if p.name == "question").required
         assert client.intents.guilds and not client.intents.message_content and not client.intents.members
         assert client.intents.guild_reactions and client.intents.dm_reactions
         assert client.supervisor is None and client.pump is None
@@ -94,6 +105,26 @@ def test_new_and_ask_replays_do_not_duplicate_or_switch_turns(setup):
             assert db.execute("SELECT COUNT(*) FROM turns").fetchone()[0] == 1
             assert db.execute("SELECT question_channel_id FROM turns").fetchone()[0] is None
             assert db.execute("SELECT COUNT(*) FROM events WHERE kind='question_interaction'").fetchone()[0] == 1
+        await client.close()
+    asyncio.run(run())
+
+
+@pytest.mark.parametrize("question,notice", [("", "No question text was received"), ("hello\x00", "NUL control character")])
+def test_bad_question_has_specific_feedback_without_queuing(setup, question, notice):
+    arms, _ = setup
+    async def run():
+        client = ResearchGateway(arms, "/unused/pi")
+        client.access = Access()
+        destination = await client.access.authorize("1")
+        await client.handle("new", "1", "30", None, "100", destination, name="Pilot")
+        client.supervisor = SimpleNamespace()
+        interaction = Interaction(101)
+        await client.execute(interaction, "ask", question=question)
+        assert notice in interaction.output
+        assert "exact conversation ID" not in interaction.output
+        with arms.connect(readonly=True) as db:
+            assert db.execute("SELECT count(*) FROM turns").fetchone()[0] == 0
+        client.supervisor = None
         await client.close()
     asyncio.run(run())
 
