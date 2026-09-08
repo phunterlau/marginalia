@@ -21,7 +21,7 @@ Keep operational databases, source archives, backups, credentials and Pi session
 outside the checkout. `ArmsRegistry(..., create=True)` explicitly creates a new
 operational registry; ordinary opening never initializes or migrates a database.
 
-Registry version 6 adds the automatic thread outbox; version 5 added pinned-paper
+Registry version 7 adds immutable publication previews; version 6 added the automatic thread outbox; version 5 added pinned-paper
 thread checkpoints; version 4 added source submissions; version 3 added fork staging and
 version 2 added routing. For a version-1
 registry, stop workers first and invoke the trusted local
@@ -29,7 +29,7 @@ registry, stop workers first and invoke the trusted local
 worker lock or RUNNING claims, verifies a private SQLite backup, then migrates
 transactionally. It returns the backup path (or `None` if already current).
 Then run `migrate_v2_to_v3(root)`, `migrate_v3_to_v4(root)`, and
-`migrate_v4_to_v5(root)`, then `migrate_v5_to_v6(root)` from the same module in order, starting at the registry's
+`migrate_v4_to_v5(root)`, `migrate_v5_to_v6(root)`, then `migrate_v6_to_v7(root)` from the same module in order, starting at the registry's
 current version. Each step creates its own verified backup.
 Opening an old registry does not perform migrations automatically.
 
@@ -295,8 +295,24 @@ append Brain's audit event with the Discord actor. Stale submissions must reload
 they are not automatically retried. Oversized cards require the local workbench.
 Pi tools remain read-only, and no real cards have been accepted by automated tests.
 
+`publication.Publications` is the local consent foundation (not yet a Discord
+command or publication executor). `prepare` selects the owner's plain curated
+notes and/or evidence blocks identifying pinned arXiv papers, and creates an
+immutable bounded preview. Linked evidence is included explicitly using bundle
+aliases; private object/block/session IDs and filesystem paths are not exported.
+Structured notes and unresolved private textual references must first be curated.
+The exact text, evidence, source revision/hash/license and destination audience
+are shown before consent. Destination maintainers cannot inspect a PREVIEW.
+`decide(..., action="consent")` requires its source owner and exact digest;
+`action="approve"` additionally requires a destination maintainer. The owner may
+cancel before execution. Policy changes invalidate pending approvals. Every
+decision is audited; approved snapshots still create **zero destination records**.
+Destination source ingestion, evidence remapping, retry-safe publication execution
+and Discord controls remain to be implemented. Publication will not imply review
+acceptance or copy private Pi histories.
+
 This is a partial pilot, **not a validated live deployment**. Complete Discord
-recovery controls, publication consent, discussion search and reactions still need integration.
+recovery controls, publication execution/commands, discussion search and reactions still need integration.
 The delivery and permissions paths are mock-tested, not live-tested. There is no
 HTTP listener, installed daemon or LaunchAgent.
 

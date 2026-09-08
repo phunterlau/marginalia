@@ -27,6 +27,10 @@ def migrate_v5_to_v6(root):
     return _migrate(root, 5, 6, "CREATE TABLE paper_thread_jobs(submission_id TEXT PRIMARY KEY REFERENCES paper_submissions(id), state TEXT NOT NULL, thread_id TEXT, created_at TEXT NOT NULL)")
 
 
+def migrate_v6_to_v7(root):
+    return _migrate(root, 6, 7, "CREATE TABLE publications(id TEXT PRIMARY KEY, owner TEXT NOT NULL, source_space TEXT NOT NULL, destination_space TEXT NOT NULL, policy_version INTEGER NOT NULL, bundle_json TEXT NOT NULL, private_refs_json TEXT NOT NULL, digest TEXT NOT NULL, state TEXT NOT NULL, consent_actor TEXT, approval_actor TEXT, created_at TEXT NOT NULL)")
+
+
 def _migrate(root, previous, current, statement):
     root = Path(root).resolve(strict=True)
     path = root / "arms.sqlite3"
