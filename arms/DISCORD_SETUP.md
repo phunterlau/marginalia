@@ -4,6 +4,19 @@ This is a partial pilot: conversation, source-submission and approved-job execut
 automatic shared starter-thread creation is available, while complete recovery
 controls, reactions and publication remain pending. Do not treat it as the completed team-sharing release.
 
+## After an interrupted backend process
+
+Stop the Gateway and verify any orphaned Pi/worker processes have stopped before
+running `python -m research_arms.recovery --root /absolute/arms-runtime
+--spaces-root /absolute/brain-spaces --confirm-workers-stopped` from the backend
+environment. The command refuses an active supervisor lock, makes a private
+verified backup, and quarantines interrupted work without replaying anything.
+It does not recover or rerun paid Brain jobs. Inspect those ledgers separately.
+Restart the Gateway only after reviewing the recovery report. Existing remote
+paper threads may then be reconciled with `/paper reconcile`; absent resources
+and partial forks still require inspection. Never infer that a call failed merely
+because the process or connection disappeared.
+
 ## Create a dedicated application
 
 Create an application and bot in the [Discord Developer Portal](https://discord.com/developers/applications).

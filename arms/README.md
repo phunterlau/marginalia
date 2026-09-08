@@ -33,6 +33,27 @@ Then run `migrate_v2_to_v3(root)`, `migrate_v3_to_v4(root)`, and
 current version. Each step creates its own verified backup.
 Opening an old registry does not perform migrations automatically.
 
+## Interrupted worker recovery
+
+Stop the Gateway and verify its orphaned Pi/worker processes have also stopped.
+Then run this trusted local command (never exposed to Discord or Pi):
+
+```sh
+python -m research_arms.recovery --root /absolute/private/arms-runtime \
+  --spaces-root /absolute/private/brain-spaces --confirm-workers-stopped
+```
+
+It refuses a held supervisor lock, creates a private integrity-checked SQLite
+backup, and atomically quarantines interrupted conversations, source submissions,
+thread jobs, thread-creation checkpoints and partial forks. Uncertain message
+deliveries become UNKNOWN. It never retries a provider call or Discord write,
+deletes assets, or labels partial work complete. Brain paid-job ledgers are
+unchanged and need their own explicit inspection. The JSON result reports counts
+and the local backup path. Repeated recovery adds no duplicate quarantine events.
+A free lock alone does not prove child processes are stopped; that remains an
+explicit operator verification. A recovered paper checkpoint can subsequently use
+`/paper reconcile` if the remote starter and thread already exist and verify.
+
 ## Current library contract
 
 `research_arms.ArmsRegistry` uses only Brain's public `SpaceRegistry` interface.

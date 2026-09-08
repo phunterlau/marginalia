@@ -494,4 +494,18 @@ class ArmsRegistry:
             for ident in sending:
                 db.execute("UPDATE outbox SET state='UNKNOWN' WHERE id=?", (ident,))
                 db.execute("INSERT INTO events(kind,subject,at) VALUES ('delivery_uncertain',?,?)", (ident, now()))
-            return {"conversations_quarantined": len(active), "uncertain_deliveries": len(sending)}
+            result = {"conversations_quarantined": len(active), "uncertain_deliveries": len(sending)}
+            for table, key, condition, event in (
+                ("paper_submissions", "id", "state='RUNNING'", "source_interrupted"),
+                ("paper_thread_jobs", "submission_id", "state='RUNNING'", "thread_job_interrupted"),
+                ("paper_threads", "id", "state IN ('MESSAGE_SENDING','MESSAGE_READY','THREAD_SENDING','THREAD_READY','RECONCILING')", "paper_thread_interrupted"),
+                ("session_forks", "request_id", "state='PREPARED'", "fork_interrupted"),
+            ):
+                identities = [r[0] for r in db.execute(f"SELECT {key} FROM {table} WHERE {condition}")]
+                for ident in identities:
+                    if table == "session_forks":
+                        db.execute("UPDATE conversations SET status='NEEDS_ATTENTION' WHERE id=(SELECT target_id FROM session_forks WHERE request_id=?)", (ident,))
+                    db.execute(f"UPDATE {table} SET state='NEEDS_ATTENTION' WHERE {key}=?", (ident,))
+                    db.execute("INSERT INTO events(kind,subject,at) VALUES (?,?,?)", (event, ident, now()))
+                result[table + "_quarantined"] = len(identities)
+            return result
