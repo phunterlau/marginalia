@@ -2,6 +2,7 @@
 import argparse
 import asyncio
 import json
+import hashlib
 import os
 
 import discord
@@ -18,6 +19,8 @@ class ResearchGateway(discord.Client):
     def __init__(self, registry, pi_executable, *, sync_commands=False, rest_client=None):
         intents = discord.Intents.none()
         intents.guilds = True
+        intents.guild_messages = True
+        intents.dm_messages = True
         # Slash commands work without privileged message-content/member intents.
         super().__init__(intents=intents, allowed_mentions=discord.AllowedMentions.none())
         self.registry, self.pi_executable = registry, pi_executable
@@ -73,6 +76,53 @@ class ResearchGateway(discord.Client):
 
     async def on_resumed(self):
         self.gateway_online = True
+
+    async def on_message(self, message):
+        if self.access is None or self.user is None or message.author.bot or message.webhook_id:
+            return
+        actor, channel = str(message.author.id), str(message.channel.id)
+        guild = str(message.guild.id) if message.guild else None
+        reference = str(message.reference.message_id) if message.reference and message.reference.message_id else None
+        mentioned = any(user.id == self.user.id for user in message.mentions)
+        with self.registry.connect(readonly=True) as db:
+            known_reply = reference is not None and db.execute(
+                "SELECT 1 FROM outbox o JOIN turns t ON t.id=o.turn_id JOIN conversations c ON c.id=t.conversation_id WHERE o.discord_message_id=? AND o.state='DELIVERED' AND c.channel_id=? AND c.guild_id IS ?",
+                (reference, channel, guild)).fetchone() is not None
+        if guild is not None and not mentioned and not known_reply:
+            return  # Never retain casual channel chatter.
+        try:
+            destination = await self.access.authorize(actor, channel_id=channel, guild_id=guild)
+            if reference is not None and not known_reply:
+                raise Unavailable()
+            selected = self.registry.resolve_conversation(actor, channel_id=channel, guild_id=guild,
+                reply_message_id=reference if known_reply else None)
+            text = message.content.replace(f"<@{self.user.id}>", "").replace(f"<@!{self.user.id}>", "").strip()
+            attachments = [{"filename": item.filename, "url": item.url, "size": item.size} for item in message.attachments]
+            question = await assemble_question(text, attachments, download_chunks)
+            await self.access.authorize(actor, channel_id=channel, guild_id=guild, expected_space=destination["space_id"])
+            with self.registry.connect(readonly=True) as db:
+                previous = db.execute("SELECT t.* FROM turns t JOIN conversations c ON c.id=t.conversation_id WHERE t.discord_message_id=? AND c.channel_id=? AND c.guild_id IS ?", (str(message.id), channel, guild)).fetchall()
+                if previous:
+                    if len(previous) != 1: raise Unavailable()
+                    old = previous[0]
+                    _, scope = self.registry._authorized(db, old["conversation_id"], actor, channel, guild)
+                    if old["author"] != scope.principal or old["prompt"] != question:
+                        raise Unavailable()
+                    return
+            self.registry.enqueue(selected["conversation_id"], actor, channel_id=channel, guild_id=guild,
+                message_id=str(message.id), prompt=question, anchor_turn_id=selected["anchor_turn_id"])
+        except Exception:
+            # Only send generic feedback after a fresh destination check. No
+            # private IDs/titles, raw errors or provider details are included.
+            try:
+                await self.access.authorize(actor, channel_id=channel, guild_id=guild)
+                nonce = str(int(hashlib.sha256((str(message.id) + ":notice").encode()).hexdigest()[:16], 16))
+                await self.rest.post(f"channels/{channel}/messages", json={
+                    "content": "Question unavailable. Select a conversation with /new or /resume, then use /ask or mention the bot. Questions must be at most 20,000 characters with UTF-8 .txt/.md attachments.",
+                    "allowed_mentions": {"parse": [], "replied_user": False}, "flags": 4100,
+                    "nonce": nonce, "enforce_nonce": True})
+            except Exception:
+                pass  # No retry of an uncertain status notice.
 
     async def execute(self, interaction, command, **options):
         # Acknowledge within Discord's deadline before fresh REST authorization.

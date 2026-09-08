@@ -69,3 +69,50 @@ def test_unauthorized_interaction_never_creates_context(setup):
         client.supervisor = None
         await client.close()
     asyncio.run(run())
+
+
+def message(ident, *, guild=None, reference=None, mention=False, text="Follow-up"):
+    return SimpleNamespace(id=ident, author=SimpleNamespace(id=1, bot=False), webhook_id=None,
+        channel=SimpleNamespace(id=30), guild=SimpleNamespace(id=guild) if guild else None,
+        reference=SimpleNamespace(message_id=reference) if reference else None,
+        mentions=[SimpleNamespace(id=123)] if mention else [], content=text, attachments=[])
+
+
+def test_dm_reply_uses_mapped_conversation_not_active_selection(setup):
+    arms, _ = setup
+    first = arms.new_conversation("1", channel_id="30")
+    ident = arms.enqueue(first, "1", channel_id="30", message_id="100", prompt="First")
+    arms.claim()
+    arms.save_answer(ident, "answer", "entry")
+    delivery = arms.begin_delivery(ident)
+    arms.confirm_delivery(delivery["delivery_id"], "200")
+    second = arms.new_conversation("1", channel_id="30")
+    arms.select_conversation(second, "1", channel_id="30")
+    async def run():
+        client = ResearchGateway(arms, "/unused/pi")
+        client.access = Access()
+        client._connection.user = SimpleNamespace(id=123)
+        await client.on_message(message(300, reference=200))
+        await client.on_message(message(300, reference=200))
+        await client.on_message(message(301, reference=999))
+        with arms.connect(readonly=True) as db:
+            rows = db.execute("SELECT * FROM turns WHERE discord_message_id='300'").fetchall()
+            assert len(rows) == 1 and rows[0]["conversation_id"] == first
+            assert rows[0]["anchor_turn_id"] == ident
+            assert db.execute("SELECT COUNT(*) FROM turns WHERE discord_message_id='301'").fetchone()[0] == 0
+        assert arms.resolve_conversation("1", channel_id="30")["conversation_id"] == second
+        await client.close()
+    asyncio.run(run())
+
+
+def test_casual_channel_messages_are_not_retained(setup):
+    arms, _ = setup
+    async def run():
+        client = ResearchGateway(arms, "/unused/pi")
+        client.access = Access()
+        client._connection.user = SimpleNamespace(id=123)
+        await client.on_message(message(300, guild=10, text="CASUAL_CANARY"))
+        with arms.connect(readonly=True) as db:
+            assert db.execute("SELECT COUNT(*) FROM turns").fetchone()[0] == 0
+        await client.close()
+    asyncio.run(run())

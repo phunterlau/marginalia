@@ -185,10 +185,12 @@ The foreground [Discord pilot setup](DISCORD_SETUP.md) now exposes `/new`,
 `/resume`, `/session`, `/space`, `/ask` and `/stop` through the Gateway. It has no
 HTTP listener and synchronizes commands only with an explicit flag. Construction
 and command-handler tests are offline; no live bot connection has been validated.
-Ordinary message/reply ingestion and paper/feedback commands remain pending.
+Bot-directed DMs, mentions and mapped answer replies are accepted; unrelated
+channel chatter is ignored. Paper-starter routing and paper/feedback commands
+remain pending.
 
-This is a partial pilot, **not a validated live deployment**. Paper-thread and
-ordinary reply routing, Discord fork/reconciliation controls, publication consent,
+This is a partial pilot, **not a validated live deployment**. Paper-thread
+routing, Discord fork/reconciliation controls, publication consent,
 scientific reviews, discussion search and reactions still need integration.
 The delivery and permissions paths are mock-tested, not live-tested. There is no
 HTTP listener, installed daemon or LaunchAgent.

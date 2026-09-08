@@ -1,7 +1,7 @@
 # Foreground Discord pilot
 
 This is a partial pilot: conversation slash commands are implemented; paper
-commands, ordinary message/reply ingestion, reactions and publication controls
+commands, reactions and publication controls
 are still pending. Do not treat it as the completed team-sharing release.
 
 ## Create a dedicated application
@@ -11,9 +11,11 @@ Use a dedicated bot because command synchronization replaces its global command
 set. Keep the bot token only in the backend's `DISCORD_BOT_TOKEN` environment
 variable. Never paste it into a conversation, commit, command argument or Pi tool.
 
-The current slash-command pilot needs only the Guilds Gateway intent. Leave
+The pilot uses Guilds, Guild Messages and Direct Messages Gateway intents. Leave
 privileged Message Content, Server Members and Presence intents off for now.
-Ordinary messages/reactions will need their own explicitly tested intent setup.
+Without Message Content, use DMs, explicit bot mentions or slash commands. A
+reply whose content Discord omits receives a generic prompt to use `/ask`.
+Reactions will need their own explicitly tested intent setup.
 
 For OAuth2 installation, select `bot` and `applications.commands`. Grant View
 Channels, Send Messages, Send Messages in Threads, Read Message History, and
@@ -68,6 +70,11 @@ login, with built-in tools and implicit resources disabled.
 5. `/resume conversation_id:...` explicitly switches selection. `/stop` cancels
    queued work and interrupts the active turn; interrupted context cannot silently
    resume. Normal idle conversations remain usable.
+6. A DM or explicit bot mention continues the selected conversation. Replying
+   to a recorded bot answer selects its mapped conversation and supplies the
+   exact stored answer as a bounded quote. Unknown reply anchors do not fall back
+   to the active session. Unrelated channel chatter is not retained. Paper-starter
+   reply routing is still pending.
 
 Do not submit sensitive private information in shared command arguments. Shared
 means the configured channel audience, not just the person invoking a command.
