@@ -36,6 +36,22 @@ Then run `migrate_v2_to_v3(root)`, `migrate_v3_to_v4(root)`, and
 current version. Each step creates its own verified backup.
 Opening an old registry does not perform migrations automatically.
 
+## Reliable research recall
+
+`/recall question` searches only the current destination's Brain space, without
+starting or resuming Pi. It returns up to three source/accepted-record hits with
+their origin, review state, source locators, evidence and structured constraints.
+Shared queries never attach the requester's personal memory. `/discussed` remains
+a separate search of bot-directed exchanges, not scientific memory.
+
+Questions are bounded to 2,000 characters. Results use the existing same-command
+JSON attachment delivery and a 66,000-byte ceiling; oversized results fail visibly
+instead of silently trimming evidence. Narrow the query or use the local reader.
+Retrieval makes no paid query-embedding call: an existing cached query vector can
+contribute semantic results; otherwise retrieval is lexical. Empty results do not
+establish that no relevant method exists. Review status is read afresh, and
+acceptance never changes agent origin. Transport metadata paths are omitted.
+
 ## Interrupted worker recovery
 
 Failed discussion-index writes have a separate trusted-local recovery command:

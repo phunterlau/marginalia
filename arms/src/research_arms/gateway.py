@@ -26,6 +26,7 @@ from .reviews import CardReviews
 from .publication_commands import handle as handle_publication
 from .discussion_worker import DiscussionWorker
 from .discussion_reconcile import DiscussionReconciler
+from .research_commands import recall as research_recall
 from .discussion_edits import observe as observe_discussion_edit
 from .forks import fork_conversation
 from .registry import snowflake
@@ -65,6 +66,9 @@ class ResearchGateway(discord.Client):
         self._commands()
 
     def _commands(self):
+        @self.tree.command(name="recall", description="Find source evidence and accepted research records in this space")
+        async def recall(interaction: discord.Interaction, question: str):
+            await self.execute(interaction, "recall", question=question)
         @self.tree.command(name="discussed", description="Search recorded bot-directed exchanges in this Brain space")
         async def discussed(interaction: discord.Interaction, question: str):
             await self.execute(interaction, "discussed", question=question)
@@ -274,7 +278,7 @@ class ResearchGateway(discord.Client):
                     str(interaction.id), destination, **options)
             text = json.dumps(result, ensure_ascii=False)
             if len(text) > 1700:
-                if len(text.encode()) > (110000 if command.startswith("publish_") else 66000 if command == "discussed" else 16000): raise ValueError("Result exceeds bound")
+                if len(text.encode()) > (110000 if command.startswith("publish_") else 66000 if command in {"discussed", "recall"} else 16000): raise ValueError("Result exceeds bound")
                 await interaction.edit_original_response(content="Research result attached; inspect provenance and review labels.",
                     attachments=[discord.File(io.BytesIO(text.encode()), filename="research-result.json")],
                     allowed_mentions=discord.AllowedMentions.none())
@@ -293,6 +297,8 @@ class ResearchGateway(discord.Client):
 
     async def handle(self, command, actor, channel, guild, message_id, destination, **options):
         """Internal authenticated handler; never expose caller-supplied destination data."""
+        if command == "recall":
+            return await research_recall(self.registry, actor, destination, options["question"])
         if command == "discussed":
             with self.registry.connect(readonly=True) as db:
                 principal = self.registry._principal(db, actor)["principal"]
