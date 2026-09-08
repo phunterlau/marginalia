@@ -2,7 +2,8 @@
 
 This is a partial pilot: conversation, source-submission and approved-job execution are implemented;
 automatic shared starter-thread creation is available, while complete recovery
-controls, reactions and publication remain pending. Do not treat it as the completed team-sharing release.
+controls and reactions remain pending. Publication commands are mock-tested, not
+live-validated. Do not treat it as the completed team-sharing release.
 
 ## After an interrupted backend process
 
@@ -143,6 +144,27 @@ automatic paid replay. This path is mock-tested, not live-validated.
 
 Do not submit sensitive private information in shared command arguments. Shared
 means the configured channel audience, not just the person invoking a command.
+
+## Explicit publication workflow
+
+1. In your DM, use `/publish prepare destination_channel_id:... note_ids:...`
+   and/or `paper_block_ids:...`. Use whitespace-separated IDs; the selected paper
+   blocks identify pinned source revisions. Your destination channel access is
+   checked before preparation. No source paths or session files are accepted.
+2. Read the entire preview, including its exact note text, evidence dependencies,
+   source revision/hash/license, and shared audience. Large previews arrive as JSON.
+   Use `/publish show` to reopen it privately.
+3. In the DM, `/publish consent publication_id:... digest:... confirm:true` gives
+   explicit source-owner consent. Until then, the preview cannot be displayed in
+   a shared channel, even by its owner.
+4. A destination maintainer uses `/publish show` in that project channel, then
+   `/publish approve publication_id:... digest:... confirm:true`.
+5. In the same project, `/publish run publication_id:... digest:... confirm:true`
+   executes the approved local transfer. It spends no model tokens and does not
+   accept the resulting notes scientifically. Check `/publish show` after a lost
+   response. Use `retry:true` only after inspecting an uncertain execution.
+6. The owner can `/publish cancel` in the DM before execution. Cancellation does
+   not delete already published records or undo a running transfer.
 
 ## Verification status
 

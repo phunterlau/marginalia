@@ -23,7 +23,7 @@ class Publications:
         with self.registry.connect(readonly=True) as db:
             return self.registry._principal(db, actor)["principal"]
 
-    def prepare(self, actor, source_space, destination_space, *, note_ids=(), paper_block_ids=()):
+    def prepare(self, actor, source_space, destination_space, *, note_ids=(), paper_block_ids=(), request_id=None):
         if not note_ids and not paper_block_ids or len(note_ids) > 10 or len(paper_block_ids) > 10:
             raise ValueError("Select 1..10 notes and/or 1..10 paper evidence blocks")
         principal = self._principal(actor)
@@ -82,12 +82,22 @@ class Publications:
         encoded = encode(bundle)
         if len(encoded.encode()) > 100000: raise ValueError("Publication preview exceeds 100000 bytes")
         digest = hashlib.sha256(encoded.encode()).hexdigest()
-        ident = "publication_" + uuid.uuid4().hex
+        if request_id is not None:
+            from .registry import snowflake
+            snowflake(request_id)
+        ident = "publication_" + (hashlib.sha256(encode([actor, request_id]).encode()).hexdigest()[:32] if request_id else uuid.uuid4().hex)
         with spaces.connect() as policy:
             policy.execute("BEGIN IMMEDIATE")
             spaces.validate(source)
             spaces.validate(destination)
             with self.registry.connect() as db:
+                db.execute("BEGIN IMMEDIATE")
+                old = db.execute("SELECT * FROM publications WHERE id=?", (ident,)).fetchone()
+                if old:
+                    if old["policy_version"] != source.policy_version: raise Unavailable()
+                    if (old["owner"], old["source_space"], old["destination_space"], old["digest"]) != (principal, source_space, destination_space, digest):
+                        raise ValueError("Duplicate publication preview changed")
+                    return {"publication_id": ident, "digest": old["digest"], "state": old["state"], "bundle": json.loads(old["bundle_json"])}
                 db.execute("INSERT INTO publications VALUES (?,?,?,?,?,?,?,?,'PREVIEW',NULL,NULL,?)",
                     (ident, principal, source_space, destination_space, source.policy_version, encoded, encode(refs), digest, now()))
                 db.execute("INSERT INTO events(kind,subject,at) VALUES ('publication_prepared',?,?)", (ident, now()))
@@ -144,13 +154,14 @@ class Publications:
             self.registry.spaces.validate(scope, maintainer=maintainer)
             if scope.policy_version != row["policy_version"]: raise Unavailable()
 
-    def execute(self, actor, ident, digest, *, retry=False):
+    def execute(self, actor, ident, digest, *, retry=False, authorize=None):
         """Trusted backend action: no network/model calls, no session copying.
 
         Approved sources may become searchable before the whole publication
         completes. Notes and a destination receipt commit atomically; the receipt
         reconciles a crash between the separate Brain and Arms commits.
         """
+        if authorize is not None: authorize()
         with self.registry.connect() as db:
             db.execute("BEGIN IMMEDIATE")
             row = db.execute("SELECT * FROM publications WHERE id=?", (ident,)).fetchone()
@@ -171,6 +182,7 @@ class Publications:
             mappings, papers = {}, {}
             cached = destination.publication_receipt(digest)
             for paper in ([] if cached else bundle["papers"]):
+                if authorize is not None: authorize()
                 self._execution_access(actor, row)
                 selected = next(e for e in bundle["evidence"] if e["paper"] == paper["ref"])
                 block_id = private["blocks"][selected["ref"]]["block_id"]
@@ -190,6 +202,7 @@ class Publications:
             notes = [{"title": note["title"], "body": note["body"], "origin": note["origin"],
                 "evidence": [{"block_id": mappings[link["ref"]], "relation": link["relation"]} for link in note["evidence"]]}
                 for note in ([] if cached else bundle["notes"])]
+            if authorize is not None: authorize()
             with self.registry.spaces.connect() as policy:
                 policy.execute("BEGIN IMMEDIATE")
                 self._execution_access(actor, row)

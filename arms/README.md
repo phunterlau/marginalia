@@ -295,8 +295,8 @@ append Brain's audit event with the Discord actor. Stale submissions must reload
 they are not automatically retried. Oversized cards require the local workbench.
 Pi tools remain read-only, and no real cards have been accepted by automated tests.
 
-`publication.Publications` is the local consent and execution interface (not yet a Discord
-command). `prepare` selects the owner's plain curated
+`publication.Publications` is the local consent and execution interface.
+`prepare` selects the owner's plain curated
 notes and/or evidence blocks identifying pinned arXiv papers, and creates an
 immutable bounded preview. Linked evidence is included explicitly using bundle
 aliases; private object/block/session IDs and filesystem paths are not exported.
@@ -317,11 +317,25 @@ papers may be searchable earlier, but partial publication is not marked complete
 No model calls, downloads, private session files or unrelated memory are copied.
 An uncertain execution requires explicit `retry=True` after inspection; a receipt
 reconciles a lost Arms completion without duplicating destination records. Recovery
-quarantines interrupted publications. Discord controls and live sharing validation
-remain pending. Publication does not imply scientific acceptance.
+quarantines interrupted publications. Publication does not imply scientific acceptance.
+
+Discord exposes `/publish prepare`, `show`, `consent`, `approve`, `cancel`, and
+`run`. Prepare/consent/cancel are owner-only DM operations. Preparation identifies
+a configured destination channel, checks the owner's Discord access there, and
+accepts at most ten whitespace-separated note IDs and ten paper-evidence IDs.
+Before consent, even the owner cannot show that preview in a shared channel.
+After consent, destination maintainers can inspect the approved bundle in its
+matching project channel. Approve/run are restricted to that destination; each
+decision requires the exact digest and `confirm:true`. An inspected uncertain
+execution additionally requires `retry:true`. Complete previews up to 100 KB are
+attached as JSON without truncating consented text. Pi has none of these tools.
+Only one publication execution runs at once; shutdown joins the local writer.
+Execution rechecks the operator, source owner and approver's current Discord access
+between source copies and before note publication. Discord controls are mock-tested;
+live sharing validation remains pending.
 
 This is a partial pilot, **not a validated live deployment**. Complete Discord
-recovery controls, publication commands, discussion search and reactions still need integration.
+recovery controls, discussion search and reactions still need integration.
 The delivery and permissions paths are mock-tested, not live-tested. There is no
 HTTP listener, installed daemon or LaunchAgent.
 

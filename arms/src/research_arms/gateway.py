@@ -23,6 +23,7 @@ from .paid_worker import PaidAbsorptionWorker
 from .paper_threads import PaperThreads
 from .thread_worker import PaperThreadWorker
 from .reviews import CardReviews
+from .publication_commands import handle as handle_publication
 from .forks import fork_conversation
 from .registry import snowflake
 from research_brain.jobs import SpendingLimits
@@ -52,10 +53,29 @@ class ResearchGateway(discord.Client):
         self.gateway_online = False
         self.submissions = self.source_task = None
         self.thread_worker = self.thread_task = None
+        self.publication_tasks = set()
+        self.publication_stopping = False
         self.tree = app_commands.CommandTree(self)
         self._commands()
 
     def _commands(self):
+        publish = app_commands.Group(name="publish", description="Explicit private-to-shared publication with owner consent")
+        @publish.command(name="prepare", description="DM only: preview selected notes/papers for a shared destination channel")
+        async def publish_prepare(interaction: discord.Interaction, destination_channel_id: str, note_ids: str = "", paper_block_ids: str = ""):
+            await self.execute(interaction, "publish_prepare", destination_channel_id=destination_channel_id,
+                note_ids=note_ids, paper_block_ids=paper_block_ids)
+        @publish.command(name="show", description="Inspect an authorized publication preview or status")
+        async def publish_show(interaction: discord.Interaction, publication_id: str):
+            await self.execute(interaction, "publish_show", publication_id=publication_id)
+        def decision_command(action):
+            async def callback(interaction: discord.Interaction, publication_id: str, digest: str, confirm: bool = False):
+                await self.execute(interaction, "publish_" + action, publication_id=publication_id, digest=digest, confirm=confirm)
+            publish.command(name=action, description="Explicit publication " + action + "; requires the exact preview digest")(callback)
+        for action in ("consent", "approve", "cancel"): decision_command(action)
+        @publish.command(name="run", description="Shared maintainer: execute an approved publication; no model calls")
+        async def publish_run(interaction: discord.Interaction, publication_id: str, digest: str, confirm: bool = False, retry: bool = False):
+            await self.execute(interaction, "publish_run", publication_id=publication_id, digest=digest, confirm=confirm, retry=retry)
+        self.tree.add_command(publish)
         card = app_commands.Group(name="card", description="Inspect evidence-backed research cards and record human review")
         @card.command(name="show", description="Read a card, its evidence and the version required for review")
         async def card_show(interaction: discord.Interaction, object_id: str):
@@ -216,9 +236,14 @@ class ResearchGateway(discord.Client):
             # Do not return selected private metadata following a permission change.
             await self.access.authorize(actor, channel_id=channel, guild_id=guild,
                                         expected_space=destination["space_id"])
+            if command == "publish_show" and guild is not None:
+                # Owner cancellation while a preview was being loaded must
+                # prevent its later delivery to the shared audience.
+                result = await handle_publication(self, command, actor, channel, guild,
+                    str(interaction.id), destination, **options)
             text = json.dumps(result, ensure_ascii=False)
             if len(text) > 1700:
-                if len(text.encode()) > 16000: raise ValueError("Result exceeds bound")
+                if len(text.encode()) > (110000 if command.startswith("publish_") else 16000): raise ValueError("Result exceeds bound")
                 await interaction.edit_original_response(content="Research result attached; inspect provenance and review labels.",
                     attachments=[discord.File(io.BytesIO(text.encode()), filename="research-result.json")],
                     allowed_mentions=discord.AllowedMentions.none())
@@ -228,6 +253,8 @@ class ResearchGateway(discord.Client):
                     if command == "paper_approve" else
                     "Review not confirmed. Reload /card show for the current version; dispute/reject require a note. Oversized cards need the local review workbench."
                     if command.startswith("card_") else
+                    "Publication not confirmed. Inspect /publish show, use its exact digest and confirm:true. Prepare/consent/cancel belong in DMs; approve/run belong in the destination channel. Uncertain runs require inspection before retry:true."
+                    if command.startswith("publish_") else
                     "Invalid or oversized request. Use an exact conversation ID and at most 20,000 characters of UTF-8 text.")
         except Exception:
             text = "Research operation unavailable. Check your selected session, access, or backend recovery status."
@@ -235,6 +262,9 @@ class ResearchGateway(discord.Client):
 
     async def handle(self, command, actor, channel, guild, message_id, destination, **options):
         """Internal authenticated handler; never expose caller-supplied destination data."""
+        if command.startswith("publish_"):
+            await self.access.authorize(actor, channel_id=channel, guild_id=guild, expected_space=destination["space_id"])
+            return await handle_publication(self, command, actor, channel, guild, message_id, destination, **options)
         if command in {"card_show", "card_review"}:
             await self.access.authorize(actor, channel_id=channel, guild_id=guild, expected_space=destination["space_id"])
             def operate():
@@ -375,6 +405,7 @@ class ResearchGateway(discord.Client):
             await asyncio.sleep(2)
 
     async def close(self):
+        self.publication_stopping = True
         if self.thread_worker: self.thread_worker.stopping = True
         if self.paid_worker: self.paid_worker.stopping = True
         if self.pump:
@@ -387,6 +418,7 @@ class ResearchGateway(discord.Client):
         if self.source_task: await asyncio.gather(self.source_task, return_exceptions=True)
         if self.thread_task: await asyncio.gather(self.thread_task, return_exceptions=True)
         if self.paid_task: await asyncio.gather(self.paid_task, return_exceptions=True)
+        if self.publication_tasks: await asyncio.gather(*self.publication_tasks, return_exceptions=True)
         if self.supervisor: await self.supervisor.close()
         if self.rest: await self.rest.aclose()
         await super().close()
