@@ -3,7 +3,7 @@ import sqlite3
 import pytest
 
 from research_arms import ArmsRegistry, Unavailable
-from research_arms.migrations import migrate_v1_to_v2, migrate_v2_to_v3, migrate_v3_to_v4, migrate_v4_to_v5, migrate_v5_to_v6, migrate_v6_to_v7
+from research_arms.migrations import migrate_v1_to_v2, migrate_v2_to_v3, migrate_v3_to_v4, migrate_v4_to_v5, migrate_v5_to_v6, migrate_v6_to_v7, migrate_v7_to_v8
 from test_registry import setup, shared, turn
 
 
@@ -46,6 +46,8 @@ def test_explicit_backed_up_migration_preserves_v1(setup):
     with arms.connect() as db:
         db.execute("DROP TABLE conversation_routes")
         db.execute("DROP TABLE session_forks")
+        db.execute("DROP TABLE discussion_jobs")
+        db.execute("ALTER TABLE turns DROP COLUMN question_channel_id")
         db.execute("DROP TABLE publications")
         db.execute("DROP TABLE paper_thread_jobs")
         db.execute("DROP TABLE paper_submissions")
@@ -67,9 +69,11 @@ def test_explicit_backed_up_migration_preserves_v1(setup):
     assert migrate_v5_to_v6(arms.root)
     assert migrate_v5_to_v6(arms.root) is None
     assert migrate_v6_to_v7(arms.root)
+    assert migrate_v6_to_v7(arms.root) is None
+    assert migrate_v7_to_v8(arms.root)
     reopened = ArmsRegistry(arms.root, spaces)
     reopened.select_conversation(conv, "1", channel_id="21", guild_id="10")
-    assert migrate_v6_to_v7(arms.root) is None
+    assert migrate_v7_to_v8(arms.root) is None
 
 
 def test_migration_failure_leaves_original_version_and_backup(setup):

@@ -21,7 +21,8 @@ Keep operational databases, source archives, backups, credentials and Pi session
 outside the checkout. `ArmsRegistry(..., create=True)` explicitly creates a new
 operational registry; ordinary opening never initializes or migrates a database.
 
-Registry version 7 adds immutable publication previews; version 6 added the automatic thread outbox; version 5 added pinned-paper
+Registry version 8 adds the discussion projection outbox and original question
+channel; version 7 added immutable publication previews; version 6 added the automatic thread outbox; version 5 added pinned-paper
 thread checkpoints; version 4 added source submissions; version 3 added fork staging and
 version 2 added routing. For a version-1
 registry, stop workers first and invoke the trusted local
@@ -29,7 +30,8 @@ registry, stop workers first and invoke the trusted local
 worker lock or RUNNING claims, verifies a private SQLite backup, then migrates
 transactionally. It returns the backup path (or `None` if already current).
 Then run `migrate_v2_to_v3(root)`, `migrate_v3_to_v4(root)`, and
-`migrate_v4_to_v5(root)`, `migrate_v5_to_v6(root)`, then `migrate_v6_to_v7(root)` from the same module in order, starting at the registry's
+`migrate_v4_to_v5(root)`, `migrate_v5_to_v6(root)`, `migrate_v6_to_v7(root)`, then
+`migrate_v7_to_v8(root)` from the same module in order, starting at the registry's
 current version. Each step creates its own verified backup.
 Opening an old registry does not perform migrations automatically.
 
@@ -334,8 +336,21 @@ Execution rechecks the operator, source owner and approver's current Discord acc
 between source copies and before note publication. Discord controls are mock-tested;
 live sharing validation remains pending.
 
+`/discussed question:...` searches the current destination's recorded discussion,
+not the owner's personal history from a shared channel. Confirmed delivery queues
+an immutable exchange snapshot in the same Arms transaction; a separate worker
+projects it into the original writable Brain space after fresh authorization.
+Unknown/undelivered answers are not indexed. Projection never calls a provider.
+Brain's idempotent revision ledger handles duplicate records; failed/interrupted
+projection requires attention rather than silently replaying. Shutdown joins the
+writer and local recovery quarantines RUNNING projection jobs. Original question
+channels are preserved for paper-starter replies; unknown legacy locations are
+not invented. Migration does not backfill historical deliveries. Brain schema 003
+must be migrated explicitly before projection. Edits/deletions, historical
+backfill/retry controls and Pi discussion-tool integration remain pending.
+
 This is a partial pilot, **not a validated live deployment**. Complete Discord
-recovery controls, discussion search and reactions still need integration.
+recovery controls, discussion revision events/Pi integration and reactions still need integration.
 The delivery and permissions paths are mock-tested, not live-tested. There is no
 HTTP listener, installed daemon or LaunchAgent.
 

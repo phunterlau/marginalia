@@ -31,6 +31,12 @@ def migrate_v6_to_v7(root):
     return _migrate(root, 6, 7, "CREATE TABLE publications(id TEXT PRIMARY KEY, owner TEXT NOT NULL, source_space TEXT NOT NULL, destination_space TEXT NOT NULL, policy_version INTEGER NOT NULL, bundle_json TEXT NOT NULL, private_refs_json TEXT NOT NULL, digest TEXT NOT NULL, state TEXT NOT NULL, consent_actor TEXT, approval_actor TEXT, created_at TEXT NOT NULL)")
 
 
+def migrate_v7_to_v8(root):
+    return _migrate(root, 7, 8, (
+        "ALTER TABLE turns ADD COLUMN question_channel_id TEXT",
+        "CREATE TABLE discussion_jobs(turn_id TEXT PRIMARY KEY REFERENCES turns(id), scope_json TEXT NOT NULL, payload_json TEXT NOT NULL, state TEXT NOT NULL, created_at TEXT NOT NULL)"))
+
+
 def _migrate(root, previous, current, statement):
     root = Path(root).resolve(strict=True)
     path = root / "arms.sqlite3"
@@ -55,7 +61,8 @@ def _migrate(root, previous, current, statement):
                 source.backup(target)
                 if target.execute("PRAGMA integrity_check").fetchall() != [("ok",)]:
                     raise ValueError("Backup verification failed")
-            db.execute(statement)
+            for sql in ((statement,) if isinstance(statement, str) else statement):
+                db.execute(sql)
             db.execute("UPDATE meta SET version=?", (current,))
             return backup
     finally:

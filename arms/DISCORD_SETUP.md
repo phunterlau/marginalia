@@ -168,6 +168,15 @@ means the configured channel audience, not just the person invoking a command.
 
 ## Verification status
 
+Use `/discussed question:...` to search exchanges indexed in the current space.
+Only confirmed bot-directed answers are projected, without provider calls. Results
+identify the question author and assistant separately and link to their messages.
+Private DM discussions are not searched from shared channels, even for the owner.
+Missing results do not prove a topic was never discussed: historical backfill and
+Discord edit/deletion integration remain pending. Brain schema 003 and Arms schema
+8 require explicit backed-up migration on existing databases. No migration is run
+automatically by the Gateway.
+
 Command registration and handlers have offline tests using the installed
 discord.py SDK. REST permissions/delivery use synthetic responses. The Gateway
 has not been connected to a live Discord application, and live Pi synthesis,

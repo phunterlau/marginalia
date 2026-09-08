@@ -24,6 +24,7 @@ from .paper_threads import PaperThreads
 from .thread_worker import PaperThreadWorker
 from .reviews import CardReviews
 from .publication_commands import handle as handle_publication
+from .discussion_worker import DiscussionWorker
 from .forks import fork_conversation
 from .registry import snowflake
 from research_brain.jobs import SpendingLimits
@@ -55,10 +56,14 @@ class ResearchGateway(discord.Client):
         self.thread_worker = self.thread_task = None
         self.publication_tasks = set()
         self.publication_stopping = False
+        self.discussion_worker = self.discussion_task = None
         self.tree = app_commands.CommandTree(self)
         self._commands()
 
     def _commands(self):
+        @self.tree.command(name="discussed", description="Search recorded bot-directed exchanges in this Brain space")
+        async def discussed(interaction: discord.Interaction, question: str):
+            await self.execute(interaction, "discussed", question=question)
         publish = app_commands.Group(name="publish", description="Explicit private-to-shared publication with owner consent")
         @publish.command(name="prepare", description="DM only: preview selected notes/papers for a shared destination channel")
         async def publish_prepare(interaction: discord.Interaction, destination_channel_id: str, note_ids: str = "", paper_block_ids: str = ""):
@@ -163,6 +168,7 @@ class ResearchGateway(discord.Client):
                 PaperThreads(self.registry, self.access, self.rest, str(self.user.id), service_factory=self.absorption_factory))
             self.paid_worker = PaidAbsorptionWorker(self.registry, self.access,
                 enabled=self.run_approved_absorption, service_factory=self.absorption_factory)
+            self.discussion_worker = DiscussionWorker(self.registry, self.access)
         if self.pump is None or self.pump.done():
             self.pump = asyncio.create_task(self._pump())
 
@@ -209,7 +215,8 @@ class ResearchGateway(discord.Client):
                         raise Unavailable()
                     return
             self.registry.enqueue(selected["conversation_id"], actor, channel_id=channel, guild_id=guild,
-                message_id=str(message.id), prompt=question, anchor_turn_id=selected["anchor_turn_id"])
+                message_id=str(message.id), prompt=question, anchor_turn_id=selected["anchor_turn_id"],
+                question_channel_id=str(message.channel.id))
         except Exception:
             # Only send generic feedback after a fresh destination check. No
             # private IDs/titles, raw errors or provider details are included.
@@ -243,7 +250,7 @@ class ResearchGateway(discord.Client):
                     str(interaction.id), destination, **options)
             text = json.dumps(result, ensure_ascii=False)
             if len(text) > 1700:
-                if len(text.encode()) > (110000 if command.startswith("publish_") else 16000): raise ValueError("Result exceeds bound")
+                if len(text.encode()) > (110000 if command.startswith("publish_") else 66000 if command == "discussed" else 16000): raise ValueError("Result exceeds bound")
                 await interaction.edit_original_response(content="Research result attached; inspect provenance and review labels.",
                     attachments=[discord.File(io.BytesIO(text.encode()), filename="research-result.json")],
                     allowed_mentions=discord.AllowedMentions.none())
@@ -262,6 +269,12 @@ class ResearchGateway(discord.Client):
 
     async def handle(self, command, actor, channel, guild, message_id, destination, **options):
         """Internal authenticated handler; never expose caller-supplied destination data."""
+        if command == "discussed":
+            with self.registry.connect(readonly=True) as db:
+                principal = self.registry._principal(db, actor)["principal"]
+            scope = self.registry.spaces.scope(principal, conversation_id="discussion-search", writable_space=destination["space_id"])
+            return await asyncio.to_thread(self.registry.spaces.read, scope, destination["space_id"],
+                "search_discussions", options["question"], limit=3)
         if command.startswith("publish_"):
             await self.access.authorize(actor, channel_id=channel, guild_id=guild, expected_space=destination["space_id"])
             return await handle_publication(self, command, actor, channel, guild, message_id, destination, **options)
@@ -377,6 +390,12 @@ class ResearchGateway(discord.Client):
                 self.source_task = None
             if self.source_task is None:
                 self.source_task = asyncio.create_task(self.submissions.work_once())
+            if self.discussion_task is not None and self.discussion_task.done():
+                try: self.discussion_task.result()
+                except Exception: pass
+                self.discussion_task = None
+            if self.discussion_task is None:
+                self.discussion_task = asyncio.create_task(self.discussion_worker.work_once())
             if self.thread_task is not None and self.thread_task.done():
                 try: self.thread_task.result()
                 except Exception: pass
@@ -406,6 +425,7 @@ class ResearchGateway(discord.Client):
 
     async def close(self):
         self.publication_stopping = True
+        if self.discussion_worker: self.discussion_worker.stopping = True
         if self.thread_worker: self.thread_worker.stopping = True
         if self.paid_worker: self.paid_worker.stopping = True
         if self.pump:
@@ -418,6 +438,7 @@ class ResearchGateway(discord.Client):
         if self.source_task: await asyncio.gather(self.source_task, return_exceptions=True)
         if self.thread_task: await asyncio.gather(self.thread_task, return_exceptions=True)
         if self.paid_task: await asyncio.gather(self.paid_task, return_exceptions=True)
+        if self.discussion_task: await asyncio.gather(self.discussion_task, return_exceptions=True)
         if self.publication_tasks: await asyncio.gather(*self.publication_tasks, return_exceptions=True)
         if self.supervisor: await self.supervisor.close()
         if self.rest: await self.rest.aclose()

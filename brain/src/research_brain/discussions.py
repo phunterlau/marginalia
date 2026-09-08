@@ -11,7 +11,9 @@ IDENTITY = ("id", "conversation_id", "author", "guild_id", "channel_id", "messag
 
 
 def validate(record):
-    if not isinstance(record, dict) or set(record) != FIELDS: raise ValueError("Invalid discussion record")
+    if not isinstance(record, dict) or set(record) - {"question_channel_id"} != FIELDS: raise ValueError("Invalid discussion record")
+    if record.get("question_channel_id") is not None and (not isinstance(record["question_channel_id"], str) or not re.fullmatch(r"[0-9]{1,20}", record["question_channel_id"])):
+        raise ValueError("Invalid question channel")
     for key in ("id", "conversation_id", "author", "pi_entry_id"):
         if not isinstance(record[key], str) or not re.fullmatch(r"[A-Za-z0-9_-]{1,100}", record[key]):
             raise ValueError("Invalid discussion identity")
@@ -46,7 +48,9 @@ def record(store, payload):
         head = db.execute("SELECT r.* FROM discussion_heads h JOIN discussion_revisions r ON r.record_id=h.record_id AND r.revision=h.revision WHERE h.record_id=?", (payload["id"],)).fetchone()
         if head:
             previous = json.loads(head["payload_json"])
-            if any(previous[key] != payload[key] for key in IDENTITY): raise ValueError("Discussion identity changed")
+            if (any(previous[key] != payload[key] for key in IDENTITY)
+                    or previous.get("question_channel_id", previous["channel_id"]) != payload.get("question_channel_id", payload["channel_id"])):
+                raise ValueError("Discussion identity changed")
         db.execute("INSERT INTO discussion_revisions VALUES (?,?,?,?,?)",
             (payload["id"], payload["revision"], encoded, digest, payload["recorded_at"]))
         if head is None or payload["revision"] > head["revision"]:
@@ -75,7 +79,8 @@ def search(store, query, *, limit=5):
             | {"question": value["question"][:1000], "answer": value["answer"][:2000],
                "omitted_question_characters": max(0, len(value["question"]) - 1000),
                "omitted_answer_characters": max(0, len(value["answer"]) - 2000),
-               "question_url": f"https://discord.com/channels/{guild}/{value['channel_id']}/{value['message_id']}",
+               "question_url": (f"https://discord.com/channels/{guild}/{value.get('question_channel_id', value['channel_id'])}/{value['message_id']}"
+                                if value.get("question_channel_id", value["channel_id"]) else None),
                "answer_url": f"https://discord.com/channels/{guild}/{value['channel_id']}/{value['answer_message_id']}",
                "record_type": "discussion", "scientific_review_state": "NOT_SCIENTIFIC_MEMORY"})
         items[-1]["question_author"] = value["author"]

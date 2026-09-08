@@ -44,7 +44,7 @@ def visibility(scope):
 
 
 class ArmsRegistry:
-    VERSION = 7
+    VERSION = 8
 
     def __init__(self, root, spaces: SpaceRegistry, *, create=False):
         self.root = Path(root).resolve()
@@ -56,7 +56,7 @@ class ArmsRegistry:
             with self.connect(create=True) as db:
                 db.executescript("""
                     CREATE TABLE meta(version INTEGER NOT NULL);
-                    INSERT INTO meta VALUES (7);
+                    INSERT INTO meta VALUES (8);
                     CREATE TABLE principals(discord_user TEXT PRIMARY KEY, principal TEXT UNIQUE NOT NULL,
                                             personal_space TEXT NOT NULL);
                     CREATE TABLE channels(guild_id TEXT NOT NULL, channel_id TEXT NOT NULL,
@@ -72,7 +72,7 @@ class ArmsRegistry:
                         discord_message_id TEXT NOT NULL, author TEXT NOT NULL, scope_json TEXT NOT NULL,
                         prompt TEXT NOT NULL, anchor_turn_id TEXT REFERENCES turns(id),
                         status TEXT NOT NULL DEFAULT 'QUEUED', pi_entry_id TEXT, answer TEXT,
-                        created_at TEXT NOT NULL, UNIQUE(conversation_id,discord_message_id));
+                        created_at TEXT NOT NULL, question_channel_id TEXT, UNIQUE(conversation_id,discord_message_id));
                     CREATE TABLE outbox(
                         id TEXT PRIMARY KEY, turn_id TEXT UNIQUE NOT NULL REFERENCES turns(id),
                         state TEXT NOT NULL DEFAULT 'PENDING', discord_message_id TEXT,
@@ -101,6 +101,8 @@ class ArmsRegistry:
                         destination_space TEXT NOT NULL, policy_version INTEGER NOT NULL, bundle_json TEXT NOT NULL,
                         private_refs_json TEXT NOT NULL, digest TEXT NOT NULL, state TEXT NOT NULL,
                         consent_actor TEXT, approval_actor TEXT, created_at TEXT NOT NULL);
+                    CREATE TABLE discussion_jobs(turn_id TEXT PRIMARY KEY REFERENCES turns(id),
+                        scope_json TEXT NOT NULL, payload_json TEXT NOT NULL, state TEXT NOT NULL, created_at TEXT NOT NULL);
                 """)
         with self.connect(readonly=True) as db:
             if [r[0] for r in db.execute("SELECT version FROM meta")] != [self.VERSION]:
@@ -210,9 +212,10 @@ class ArmsRegistry:
         return row, scope
 
     def enqueue(self, conversation_id, discord_user, *, channel_id, guild_id=None,
-                message_id, prompt, anchor_turn_id=None):
+                message_id, prompt, anchor_turn_id=None, question_channel_id=None):
         """Only authenticated, bot-directed turns should reach this method."""
         snowflake(message_id)
+        question_channel_id = snowflake(question_channel_id or channel_id)
         if not isinstance(prompt, str) or not prompt.strip() or len(prompt) > 20_000:
             raise ValueError("Question must contain 1..20000 characters")
         with self.connect() as db:
@@ -221,7 +224,8 @@ class ArmsRegistry:
             existing = db.execute("SELECT * FROM turns WHERE conversation_id=? AND discord_message_id=?",
                                   (conversation_id, message_id)).fetchone()
             if existing:
-                if existing["author"] != scope.principal or existing["prompt"] != prompt or existing["anchor_turn_id"] != anchor_turn_id:
+                if (existing["author"] != scope.principal or existing["prompt"] != prompt or existing["anchor_turn_id"] != anchor_turn_id
+                        or existing["question_channel_id"] not in (None, question_channel_id)):
                     raise ValueError("Duplicate message changed; explicit edit handling required")
                 return existing["id"]
             if anchor_turn_id:
@@ -230,8 +234,8 @@ class ArmsRegistry:
                 if anchor is None:
                     raise Unavailable()
             turn = "turn_" + uuid.uuid4().hex
-            db.execute("INSERT INTO turns(id,conversation_id,discord_message_id,author,scope_json,prompt,anchor_turn_id,created_at) VALUES (?,?,?,?,?,?,?,?)",
-                       (turn, conversation_id, message_id, scope.principal, encode(asdict(scope)), prompt, anchor_turn_id, now()))
+            db.execute("INSERT INTO turns(id,conversation_id,discord_message_id,author,scope_json,prompt,anchor_turn_id,created_at,question_channel_id) VALUES (?,?,?,?,?,?,?,?,?)",
+                       (turn, conversation_id, message_id, scope.principal, encode(asdict(scope)), prompt, anchor_turn_id, now(), question_channel_id))
             return turn
 
     @staticmethod
@@ -482,6 +486,14 @@ class ArmsRegistry:
             db.execute("UPDATE outbox SET state='DELIVERED',discord_message_id=? WHERE id=?", (discord_message_id, delivery_id))
             db.execute("INSERT INTO events(kind,subject,at) VALUES (?, ?, ?)",
                        ("delivery_reconciled" if reconciled else "delivery_confirmed", delivery_id, now()))
+            turn = db.execute("SELECT t.*,c.guild_id,c.channel_id FROM turns t JOIN conversations c ON c.id=t.conversation_id WHERE t.id=?", (row["turn_id"],)).fetchone()
+            payload = {"id": turn["id"], "revision": 1, "conversation_id": turn["conversation_id"],
+                "author": turn["author"], "question": turn["prompt"], "answer": turn["answer"],
+                "guild_id": turn["guild_id"], "channel_id": turn["channel_id"], "question_channel_id": turn["question_channel_id"],
+                "message_id": turn["discord_message_id"], "answer_message_id": discord_message_id,
+                "pi_entry_id": turn["pi_entry_id"], "deleted": False, "recorded_at": now()}
+            db.execute("INSERT INTO discussion_jobs VALUES (?,?,?,'QUEUED',?)",
+                (turn["id"], turn["scope_json"], encode(payload), now()))
 
     def recover_stopped_workers(self, *, confirmed_stopped=False):
         """Trusted supervisor operation only after verifying old processes stopped."""
@@ -505,6 +517,7 @@ class ArmsRegistry:
                 ("paper_threads", "id", "state IN ('MESSAGE_SENDING','MESSAGE_READY','THREAD_SENDING','THREAD_READY','RECONCILING')", "paper_thread_interrupted"),
                 ("session_forks", "request_id", "state='PREPARED'", "fork_interrupted"),
                 ("publications", "id", "state='RUNNING'", "publication_interrupted"),
+                ("discussion_jobs", "turn_id", "state='RUNNING'", "discussion_interrupted"),
             ):
                 identities = [r[0] for r in db.execute(f"SELECT {key} FROM {table} WHERE {condition}")]
                 for ident in identities:

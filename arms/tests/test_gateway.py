@@ -29,7 +29,7 @@ def test_native_command_registration_is_offline_and_minimal(setup):
     arms, _ = setup
     async def run():
         client = ResearchGateway(arms, "/unused/pi")
-        assert {cmd.name for cmd in client.tree.get_commands()} == {"new", "resume", "fork", "session", "space", "ask", "stop", "paper", "card", "publish"}
+        assert {cmd.name for cmd in client.tree.get_commands()} == {"new", "resume", "fork", "session", "space", "ask", "stop", "paper", "card", "publish", "discussed"}
         assert {cmd.name for cmd in client.tree.get_command("publish").commands} == {"prepare", "show", "consent", "approve", "cancel", "run"}
         assert {cmd.name for cmd in client.tree.get_command("card").commands} == {"show", "review"}
         assert {cmd.name for cmd in client.tree.get_command("paper").commands} == {"status", "brief", "cards", "evidence", "job", "approve", "add", "submission", "thread", "reconcile"}
@@ -173,6 +173,24 @@ def test_paper_approval_requires_confirmation_and_passes_exact_scope(setup):
             assert calls == []
             result = await client.handle(*args, job_id="job_x", plan_digest="digest", confirm=True)
             assert result["status"] == "QUEUED" and calls == [("job_x", "digest", True)]
+        finally: await client.close()
+    asyncio.run(run())
+
+
+def test_discussed_uses_destination_space_not_owners_personal_history(setup):
+    from research_arms.discussion_worker import DiscussionWorker
+    from test_discussion_worker import answered, Access as ProjectionAccess
+    arms, _ = setup
+    _, delivery = answered(arms, private=True)
+    arms.confirm_delivery(delivery["delivery_id"], "200")
+    async def run():
+        await DiscussionWorker(arms, ProjectionAccess()).work_once()
+        client = ResearchGateway(arms, "/unused/pi")
+        try:
+            private = await client.handle("discussed", "1", "30", None, "300", {"space_id": "alice"}, question="PRIVATE_CANARY")
+            shared = await client.handle("discussed", "1", "20", "10", "301", {"space_id": "project"}, question="PRIVATE_CANARY")
+            assert len(private["result"]["items"]) == 1
+            assert shared["result"]["items"] == []
         finally: await client.close()
     asyncio.run(run())
 

@@ -14,8 +14,9 @@ tables and never enter scientific `search`/`recall` or become accepted cards.
 interface: it checks author, conversation, personal/shared audience and current
 authorization before writing only to the writable space. Scoped reads use
 `SpaceRegistry.read(scope, space_id, "search_discussions", query)`. Pi's existing
-read-only tools do not yet expose this operation. Arms outbox projection, Discord
-edit/deletion events and `/discussed` integration remain separate pending work;
+read-only tools do not yet expose this operation. Arms now projects confirmed
+deliveries through a durable outbox and exposes `/discussed`; Discord edit/deletion
+events and Pi discussion-tool integration remain pending;
 these Python APIs do not download Discord history.
 
 Schema migration 003 adds the index. Existing databases fail closed until an
