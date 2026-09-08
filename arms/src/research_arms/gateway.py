@@ -17,12 +17,13 @@ from .discord_io import DiscordSender, assemble_question, download_chunks
 from .papers import read_paper
 from .absorption import ScopedAbsorption
 from .submissions import PaperSubmissions
+from .paid_worker import PaidAbsorptionWorker
 from research_brain.jobs import SpendingLimits
 
 
 class ResearchGateway(discord.Client):
     def __init__(self, registry, pi_executable, *, sync_commands=False, rest_client=None,
-                 absorption_factory=ScopedAbsorption):
+                 absorption_factory=ScopedAbsorption, run_approved_absorption=False):
         intents = discord.Intents.none()
         intents.guilds = True
         intents.guild_messages = True
@@ -32,6 +33,8 @@ class ResearchGateway(discord.Client):
         self.registry, self.pi_executable = registry, pi_executable
         self.sync_commands = sync_commands
         self.absorption_factory = absorption_factory
+        self.run_approved_absorption = run_approved_absorption
+        self.paid_worker = self.paid_task = None
         self.rest = rest_client
         self.access = self.supervisor = self.pump = None
         self.running_turns = set()
@@ -100,6 +103,8 @@ class ResearchGateway(discord.Client):
             self.supervisor = Supervisor(self.registry, self.pi_executable,
                                          authorize_turn=self.access.authorize_turn)
             self.submissions = PaperSubmissions(self.registry, self.access, service_factory=self.absorption_factory)
+            self.paid_worker = PaidAbsorptionWorker(self.registry, self.access,
+                enabled=self.run_approved_absorption, service_factory=self.absorption_factory)
         if self.pump is None or self.pump.done():
             self.pump = asyncio.create_task(self._pump())
 
@@ -262,6 +267,12 @@ class ResearchGateway(discord.Client):
                 self.source_task = None
             if self.source_task is None:
                 self.source_task = asyncio.create_task(self.submissions.work_once())
+            if self.paid_task is not None and self.paid_task.done():
+                try: self.paid_task.result()
+                except Exception: pass
+                self.paid_task = None
+            if self.paid_task is None and self.run_approved_absorption:
+                self.paid_task = asyncio.create_task(self.paid_worker.work_once())
             for task in list(self.running_turns):
                 if task.done():
                     self.running_turns.remove(task)
@@ -278,6 +289,7 @@ class ResearchGateway(discord.Client):
             await asyncio.sleep(2)
 
     async def close(self):
+        if self.paid_worker: self.paid_worker.stopping = True
         if self.pump:
             self.pump.cancel()
             await asyncio.gather(self.pump, return_exceptions=True)
@@ -286,6 +298,7 @@ class ResearchGateway(discord.Client):
         # A source ingest runs in a thread; cancelling its asyncio waiter would
         # not stop disk writes. Join it before releasing process ownership.
         if self.source_task: await asyncio.gather(self.source_task, return_exceptions=True)
+        if self.paid_task: await asyncio.gather(self.paid_task, return_exceptions=True)
         if self.supervisor: await self.supervisor.close()
         if self.rest: await self.rest.aclose()
         await super().close()
@@ -298,12 +311,14 @@ def main():
     parser.add_argument("--pi", required=True, help="Absolute Pi executable")
     parser.add_argument("--connect", action="store_true", help="Explicitly connect to Discord")
     parser.add_argument("--sync-commands", action="store_true", help="Replace this bot application's global commands")
+    parser.add_argument("--run-approved-absorption", action="store_true", help="Execute explicitly approved scoped absorption jobs")
     args = parser.parse_args()
     if not args.connect: parser.error("--connect is required; no connection made")
     token = os.environ.get("DISCORD_BOT_TOKEN")
     if not token: parser.error("DISCORD_BOT_TOKEN is required in the backend environment")
     registry = ArmsRegistry(args.root, SpaceRegistry(args.spaces_root))
-    client = ResearchGateway(registry, args.pi, sync_commands=args.sync_commands)
+    client = ResearchGateway(registry, args.pi, sync_commands=args.sync_commands,
+                             run_approved_absorption=args.run_approved_absorption)
     client.run(token, log_handler=None)
 
 

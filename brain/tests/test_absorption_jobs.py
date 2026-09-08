@@ -105,6 +105,18 @@ def test_authorization_rechecked_for_each_dispatch(jobs):
     assert guarded.show(job["id"])["calls_reserved"] == 1
 
 
+def test_targeted_worker_never_claims_another_approved_job(jobs):
+    first = enqueue(jobs)
+    second = enqueue(jobs, limits=SpendingLimits(max_calls=33))
+    approve(jobs, first)
+    approve(jobs, second)
+    result = jobs.work_once(target_job_id=second["id"], extraction_factory=FakeExtractionProvider,
+                            embedding_factory=FakeEmbeddingProvider)
+    assert result["id"] == second["id"] and result["status"] == "COMPLETE"
+    assert jobs.show(first["id"])["status"] == "QUEUED"
+    assert jobs.show(first["id"])["calls_reserved"] == 0
+
+
 def test_duplicates_and_atomic_claim(jobs):
     with ThreadPoolExecutor(max_workers=2) as pool:
         results = list(pool.map(lambda _: enqueue(jobs), range(2)))

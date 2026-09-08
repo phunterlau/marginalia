@@ -308,14 +308,17 @@ class AbsorptionJobs:
             db.execute("UPDATE calls SET status='RETURNED',response_json=?,completed_at=? WHERE id=?", (encoded(response), utc_now(), call_id))
         return response
 
-    def work_once(self, *, extraction_factory: Callable | None = None, embedding_factory: Callable | None = None) -> dict:
+    def work_once(self, *, extraction_factory: Callable | None = None, embedding_factory: Callable | None = None,
+                  target_job_id: str | None = None) -> dict:
+        if target_job_id is not None:
+            identifier(target_job_id)
         with self.worker_lock():
             with self.connect() as db:
                 db.execute("BEGIN IMMEDIATE")
                 for row in db.execute("SELECT id FROM jobs WHERE status='RUNNING'").fetchall():
                     db.execute("UPDATE jobs SET status='NEEDS_ATTENTION',updated_at=? WHERE id=?", (utc_now(), row[0]))
                     self._event(db, row[0], "interrupted_worker")
-                queued = db.execute("SELECT id FROM jobs WHERE status='QUEUED' ORDER BY created_at,id LIMIT 1").fetchone()
+                queued = db.execute("SELECT id FROM jobs WHERE status='QUEUED' AND (? IS NULL OR id=?) ORDER BY created_at,id LIMIT 1", (target_job_id, target_job_id)).fetchone()
                 if not queued:
                     return {"space_id": self.space_id, "status": "IDLE"}
                 job_id = queued[0]

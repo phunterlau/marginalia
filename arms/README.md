@@ -205,7 +205,15 @@ One background source task runs at a time, without model calls. Failed or
 interrupted submissions require attention rather than automatic replay. Graceful
 shutdown joins source ingestion before releasing worker ownership. Existing
 RUNNING source rows after a restart need local reconciliation and block new
-source claims. Paid absorption-worker integration and starter threads remain pending.
+source claims. Starter-thread orchestration remains pending.
+
+`--run-approved-absorption` opts the Gateway into background paid processing of
+exact, already approved submission jobs. It is off by default. The worker checks
+both source/approver membership and current Discord access at provider-dispatch
+boundaries, and cannot claim an unrelated queued job in the same Brain database.
+Shutdown prevents further dispatches and joins in-flight work. Provider calls
+remain direct Brain work, not Pi tools. Synthetic tests cover the integration;
+no live absorption validation is claimed.
 
 `ScopedAbsorption` is the maintainer-only service foundation for those mutations.
 It binds an immutable authorization context into the paid-plan digest and checks
