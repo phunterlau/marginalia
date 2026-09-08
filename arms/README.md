@@ -71,9 +71,22 @@ can contribute; normal/burst membership is combined. Updates are atomic and
 serialized against raw events. Existing active signals keep their activation time;
 newly discovered signals use reconciliation time because the original reaction
 time is unavailable. No reaction user names or unrelated history are retained.
-Automatic reconnect scheduling and an explicit approved deep-dive Run action
-remain pending. Current event wiring is mock-tested, not live Discord validated.
-Missed events can leave signals stale until reconciliation.
+Gateway ready/resume now schedules an idempotent scan of delivered answers and
+completed paper starters, one target per pump iteration. Scans use existing source
+authors/creators for fresh access checks, serialize against raw reaction events,
+and record `COMPLETE` or `NEEDS_ATTENTION` without message bodies. No repeated retry
+occurs within a pass. A restart begins a fresh pass over persisted targets; newly
+created targets are handled by raw events and subsequent reconnects. If the source
+author no longer has access, a currently authorized participant can use explicit
+`refresh_message` recovery. Verified offline answer deletion also withdraws its
+feedback through discussion reconciliation. Offline deletion of paper starters
+still needs resource recovery; a failed reaction endpoint alone is not treated
+as proof of deletion.
+
+An explicit approved deep-dive Run action remains pending. Current event wiring
+is mock-tested, not live Discord validated. Missed events can leave signals stale
+until reconciliation finishes; this is eventually consistent, not an atomic
+snapshot of Discord while users continue reacting.
 
 `/frontier thread_id:<Brain research-thread obj_ID>` presents current goals,
 uncertainties, pending experiments and linked research records. This is an

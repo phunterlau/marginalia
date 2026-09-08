@@ -3,6 +3,7 @@ import asyncio
 
 from .discussion_edits import observe
 from .registry import encode, now, Unavailable
+from .feedback import clear as clear_feedback
 
 
 class DiscussionReconciler:
@@ -55,6 +56,12 @@ class DiscussionReconciler:
         if not isinstance(data, dict): raise Unavailable()
         if response.status_code == 404 and data.get("code") == 10008:
             await authorize()
+            lock = getattr(self.client, "feedback_lock", None)
+            if lock is not None:
+                async with lock:
+                    clear_feedback(self.client.registry, guild=row["guild_id"], channel=channel, message=message)
+            else:
+                clear_feedback(self.client.registry, guild=row["guild_id"], channel=channel, message=message)
             self.client.registry.discussion_message_deleted(guild_id=row["guild_id"], channel_id=channel, message_id=message)
             return "DELETED"
         if response.status_code != 200: raise Unavailable()

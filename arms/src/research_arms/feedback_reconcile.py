@@ -8,6 +8,44 @@ from .feedback import EMOJIS, target
 from .registry import Unavailable, encode, now, snowflake
 
 
+class FeedbackReconciler:
+    """One exact target per pump iteration; reconnects restart idempotently."""
+    def __init__(self, client):
+        self.client, self.pending, self.phase, self.cursor = client, False, 2, 0
+        self.upper = (0, 0)
+
+    def restart(self): self.pending = True
+
+    async def work_once(self):
+        registry = self.client.registry
+        if self.pending:
+            with registry.connect(readonly=True) as db:
+                self.upper = (db.execute("SELECT COALESCE(MAX(rowid),0) FROM outbox").fetchone()[0],
+                    db.execute("SELECT COALESCE(MAX(rowid),0) FROM paper_threads").fetchone()[0])
+            self.pending, self.phase, self.cursor = False, 0, 0
+        while self.phase < 2:
+            with registry.connect(readonly=True) as db:
+                if self.phase == 0:
+                    row = db.execute("SELECT o.rowid AS cursor,p.discord_user AS actor,c.guild_id AS guild,c.channel_id AS channel,o.discord_message_id AS message FROM outbox o JOIN turns t ON t.id=o.turn_id JOIN conversations c ON c.id=t.conversation_id JOIN principals p ON p.principal=t.author WHERE o.rowid>? AND o.rowid<=? AND o.state='DELIVERED' ORDER BY o.rowid LIMIT 1", (self.cursor, self.upper[self.phase])).fetchone()
+                else:
+                    row = db.execute("SELECT t.rowid AS cursor,p.discord_user AS actor,t.guild_id AS guild,t.parent_id AS channel,t.starter_id AS message FROM paper_threads t JOIN conversations c ON c.id=t.conversation_id JOIN principals p ON p.principal=c.creator WHERE t.rowid>? AND t.rowid<=? AND t.state='COMPLETE' ORDER BY t.rowid LIMIT 1", (self.cursor, self.upper[self.phase])).fetchone()
+            if row is None:
+                self.phase, self.cursor = self.phase + 1, 0
+                continue
+            args = {k: row[k] for k in ("actor", "guild", "channel", "message")}
+            try:
+                async with self.client.feedback_lock:
+                    result = await reconcile(self.client, **args)
+            except Exception:
+                result = {"status": "NEEDS_ATTENTION"}
+            with registry.connect() as db:
+                db.execute("INSERT INTO events(kind,subject,at) VALUES ('feedback_scan_checked',?,?)",
+                    (encode({"guild_id": row["guild"], "channel_id": row["channel"], "message_id": row["message"], **result}), now()))
+            self.cursor = row["cursor"]
+            return result
+        return None
+
+
 async def users(rest, channel, message, emoji, reaction_type):
     found, after = set(), 0
     for _ in range(10):

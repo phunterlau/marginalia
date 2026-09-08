@@ -31,7 +31,7 @@ from .research_commands import compare as research_compare
 from .research_commands import frontier as research_frontier
 from .saves import save_excerpt
 from .feedback import observe as observe_feedback, view as feedback_view, clear as clear_feedback
-from .feedback_reconcile import reconcile as reconcile_feedback
+from .feedback_reconcile import reconcile as reconcile_feedback, FeedbackReconciler
 from .discussion_edits import observe as observe_discussion_edit
 from .forks import fork_conversation
 from .registry import snowflake
@@ -70,6 +70,8 @@ class ResearchGateway(discord.Client):
         self.reconciler = DiscussionReconciler(self)
         self.reconcile_task = None
         self.feedback_lock = asyncio.Lock()
+        self.feedback_reconciler = FeedbackReconciler(self)
+        self.feedback_task = None
         self.tree = app_commands.CommandTree(self)
         self._commands()
 
@@ -191,6 +193,7 @@ class ResearchGateway(discord.Client):
     async def on_ready(self):
         self.gateway_online = True
         self.reconciler.restart()
+        self.feedback_reconciler.restart()
         if self.supervisor is None:
             self.rest = self.rest or DiscordSender.environment_client()
             self.access = DiscordAccess(self.registry, self.rest, str(self.user.id))
@@ -212,6 +215,7 @@ class ResearchGateway(discord.Client):
     async def on_resumed(self):
         self.gateway_online = True
         self.reconciler.restart()
+        self.feedback_reconciler.restart()
 
     async def _feedback(self, payload, active):
         if self.access is None: return
@@ -505,6 +509,12 @@ class ResearchGateway(discord.Client):
                 await asyncio.sleep(2)
                 continue
             await self.supervisor.maintain()
+            if self.feedback_task is not None and self.feedback_task.done():
+                try: self.feedback_task.result()
+                except Exception: pass
+                self.feedback_task = None
+            if self.feedback_task is None:
+                self.feedback_task = asyncio.create_task(self.feedback_reconciler.work_once())
             if self.reconcile_task is not None and self.reconcile_task.done():
                 try: self.reconcile_task.result()
                 except Exception: pass
@@ -558,6 +568,9 @@ class ResearchGateway(discord.Client):
         if self.pump:
             self.pump.cancel()
             await asyncio.gather(self.pump, return_exceptions=True)
+        if self.feedback_task:
+            self.feedback_task.cancel()
+            await asyncio.gather(self.feedback_task, return_exceptions=True)
         for task in self.running_turns: task.cancel()
         await asyncio.gather(*self.running_turns, return_exceptions=True)
         # A source ingest runs in a thread; cancelling its asyncio waiter would
