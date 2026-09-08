@@ -99,6 +99,13 @@ class Supervisor:
                     if previous is None:
                         previous = db.execute("SELECT t.pi_entry_id FROM session_forks f JOIN turns t ON t.id=f.turn_id WHERE f.target_id=? AND f.state='COMPLETE'", (conv["id"],)).fetchone()
                     payload = {"scope": asdict(scope), "author": turn["author"], "question": turn["prompt"]}
+                    stage = db.execute("SELECT kind FROM events WHERE subject=? AND kind IN ('brainstorm_blind','brainstorm_memory_assisted')", (turn_id,)).fetchone()
+                    if stage:
+                        payload["brainstorm_stage"] = "blind_first" if stage[0] == "brainstorm_blind" else "memory_assisted"
+                        payload["brainstorm_instruction"] = (
+                            "Develop independent hypotheses and discriminating tests from the user's question. Brain retrieval is disabled for this turn. Label ideas as unreviewed proposals, not remembered findings. Preserve this initial draft for a later memory-assisted follow-up."
+                            if stage[0] == "brainstorm_blind" else
+                            "Revisit the preserved blind-first draft using fresh scoped Brain evidence. Distinguish retained ideas, evidence-driven changes, uncertainties, and proposed tests. No proposal is automatically accepted or saved as scientific memory.")
                     paper = db.execute("SELECT space_id,document_id,revision FROM paper_threads WHERE thread_id=? AND guild_id IS ? AND state='COMPLETE'", (conv["channel_id"], conv["guild_id"])).fetchone()
                     if paper:
                         payload["paper_starting_point"] = dict(paper)

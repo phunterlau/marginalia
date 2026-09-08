@@ -29,7 +29,7 @@ def test_native_command_registration_is_offline_and_minimal(setup):
     arms, _ = setup
     async def run():
         client = ResearchGateway(arms, "/unused/pi")
-        assert {cmd.name for cmd in client.tree.get_commands()} == {"new", "resume", "fork", "session", "space", "ask", "stop", "paper", "card", "publish", "discussed", "recall", "compare"}
+        assert {cmd.name for cmd in client.tree.get_commands()} == {"new", "resume", "fork", "session", "space", "ask", "stop", "paper", "card", "publish", "discussed", "recall", "compare", "brainstorm"}
         assert {cmd.name for cmd in client.tree.get_command("publish").commands} == {"prepare", "show", "consent", "approve", "cancel", "run"}
         assert {cmd.name for cmd in client.tree.get_command("card").commands} == {"show", "review"}
         assert {cmd.name for cmd in client.tree.get_command("paper").commands} == {"status", "brief", "cards", "evidence", "job", "approve", "add", "submission", "thread", "reconcile"}
@@ -193,6 +193,26 @@ def test_discussed_uses_destination_space_not_owners_personal_history(setup):
             shared = await client.handle("discussed", "1", "20", "10", "301", {"space_id": "project"}, question="PRIVATE_CANARY")
             assert len(private["result"]["items"]) == 1
             assert shared["result"]["items"] == []
+        finally: await client.close()
+    asyncio.run(run())
+
+
+def test_brainstorm_creates_distinct_idempotent_conversation(setup):
+    arms, _ = setup
+    async def run():
+        client = ResearchGateway(arms, "/unused/pi")
+        try:
+            old = arms.new_conversation("1", channel_id="30")
+            destination = {"space_id": "alice", "parent_channel_id": None}
+            first = await client.handle("brainstorm", "1", "30", None, "100", destination, question="Explore geometry")
+            again = await client.handle("brainstorm", "1", "30", None, "100", destination, question="Explore geometry")
+            assert first == again and first["conversation_id"] != old
+            assert first["stage"] == "blind_first"
+            with arms.connect(readonly=True) as db:
+                assert db.execute("SELECT COUNT(*) FROM turns").fetchone()[0] == 1
+                assert db.execute("SELECT COUNT(*) FROM events WHERE kind='brainstorm_blind'").fetchone()[0] == 1
+            with pytest.raises(ValueError):
+                await client.handle("brainstorm", "1", "30", None, "100", destination, question="Changed")
         finally: await client.close()
     asyncio.run(run())
 

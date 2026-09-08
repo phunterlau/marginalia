@@ -38,6 +38,21 @@ Opening an old registry does not perform migrations automatically.
 
 ## Reliable research recall
 
+`/brainstorm question` creates and selects a separate scoped Pi conversation.
+Its initial turn has a durable blind-first marker: **all Brain read tools are
+denied by Arms**, not merely discouraged by a prompt. Pi receives the question
+and a request for independent hypotheses, uncertainties and discriminating tests.
+After a draft completes, reply to its answer or use `/ask` to enter a
+memory-assisted turn in that same session. Pi retains the initial draft; Arms
+asks it to distinguish evidence-driven changes from retained ideas. Follow-ups
+queued before any draft completes remain blind, even if processed later.
+No extra second model turn is automatically scheduled. Model output remains
+unreviewed discussion, not accepted scientific memory. A new command request
+creates a fresh session; duplicate interaction delivery does not create another.
+This workflow has mocked Pi lifecycle/tool-boundary tests, not live usefulness
+validation. Explicit optional paper selection and structured Save to Brain
+controls remain pending (paper-thread starting-point metadata still applies).
+
 `/recall question` searches only the current destination's Brain space, without
 starting or resuming Pi. It returns up to three source/accepted-record hits with
 their origin, review state, source locators, evidence and structured constraints.

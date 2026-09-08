@@ -67,6 +67,9 @@ class ResearchGateway(discord.Client):
         self._commands()
 
     def _commands(self):
+        @self.tree.command(name="brainstorm", description="Start a separate blind-first research conversation; follow up to use memory")
+        async def brainstorm(interaction: discord.Interaction, question: str):
+            await self.execute(interaction, "brainstorm", question=question)
         @self.tree.command(name="compare", description="Compare reliable evidence for 2–4 exact document@vN paper revisions")
         async def compare(interaction: discord.Interaction, papers: str, question: str):
             await self.execute(interaction, "compare", papers=papers, question=question)
@@ -303,6 +306,18 @@ class ResearchGateway(discord.Client):
 
     async def handle(self, command, actor, channel, guild, message_id, destination, **options):
         """Internal authenticated handler; never expose caller-supplied destination data."""
+        if command == "brainstorm":
+            question = options["question"]
+            if not isinstance(question, str) or not question.strip() or len(question) > 20000 or "\x00" in question:
+                raise ValueError("Brainstorm question must contain 1..20000 characters")
+            conversation = self.registry.new_conversation(actor, channel_id=channel, guild_id=guild,
+                parent_channel_id=destination.get("parent_channel_id"), name="Research brainstorm",
+                request_id=message_id, blind_first=True)
+            turn = self.registry.enqueue(conversation, actor, channel_id=channel, guild_id=guild,
+                message_id=message_id, prompt=question, question_is_message=False)
+            self.registry.select_conversation(conversation, actor, channel_id=channel, guild_id=guild)
+            return {"conversation_id": conversation, "queued_turn": turn, "stage": "blind_first",
+                "notice": "A separate Pi conversation will produce an unreviewed draft with Brain retrieval disabled. After it completes, reply or use /ask for memory-assisted exploration. Nothing is automatically accepted as research memory."}
         if command == "compare":
             return await research_compare(self.registry, actor, destination, options["papers"], options["question"])
         if command == "recall":

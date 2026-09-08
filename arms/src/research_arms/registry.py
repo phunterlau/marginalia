@@ -155,7 +155,8 @@ class ArmsRegistry:
         return row
 
     def new_conversation(self, discord_user, *, channel_id, guild_id=None,
-                         parent_channel_id=None, name="Research", read_spaces=(), request_id=None):
+                         parent_channel_id=None, name="Research", read_spaces=(), request_id=None, blind_first=False):
+        if type(blind_first) is not bool: raise ValueError("Invalid brainstorm mode")
         snowflake(channel_id)
         if not isinstance(name, str) or not 1 <= len(name.strip()) <= 100:
             raise ValueError("Conversation name must be 1..100 characters")
@@ -184,7 +185,8 @@ class ArmsRegistry:
                     row, current = self._authorized(db, conversation, discord_user, channel_id, guild_id)
                     desired = self.spaces.scope(principal["principal"], conversation_id=conversation,
                         writable_space=space, read_spaces=tuple(read_spaces))
-                    if row["name"] != name.strip() or current != desired:
+                    was_blind = db.execute("SELECT 1 FROM events WHERE kind='brainstorm_created' AND subject=?", (conversation,)).fetchone() is not None
+                    if row["name"] != name.strip() or current != desired or was_blind != blind_first:
                         raise ValueError("Duplicate conversation request changed")
                     return conversation
             else:
@@ -198,6 +200,8 @@ class ArmsRegistry:
                        (conversation, principal["principal"], guild_id, channel_id, space, scope.audience,
                         encode(scope.read_spaces), scope.policy_version, visibility(scope), str(uuid.uuid4()),
                         name.strip(), "OPEN", now()))
+            if blind_first:
+                db.execute("INSERT INTO events(kind,subject,at) VALUES ('brainstorm_created',?,?)", (conversation, now()))
             return conversation
 
     def _authorized(self, db, conversation_id, discord_user, channel_id, guild_id, *, statuses=("OPEN",)):
@@ -247,6 +251,10 @@ class ArmsRegistry:
                        (turn, conversation_id, message_id, scope.principal, encode(asdict(scope)), prompt, anchor_turn_id, now(), question_channel_id))
             db.execute("INSERT INTO events(kind,subject,at) VALUES (?,?,?)",
                 ("question_message" if question_is_message else "question_interaction", turn, now()))
+            if db.execute("SELECT 1 FROM events WHERE kind='brainstorm_created' AND subject=?", (conversation_id,)).fetchone():
+                prior = db.execute("SELECT 1 FROM turns WHERE conversation_id=? AND status='ANSWERED' LIMIT 1", (conversation_id,)).fetchone()
+                db.execute("INSERT INTO events(kind,subject,at) VALUES (?,?,?)",
+                    ("brainstorm_memory_assisted" if prior else "brainstorm_blind", turn, now()))
             return turn
 
     @staticmethod
@@ -402,6 +410,8 @@ class ArmsRegistry:
         with self.connect(readonly=True) as db:
             row, scope = self._turn_scope(db, turn_id)
             if row["status"] != "RUNNING":
+                raise Unavailable()
+            if db.execute("SELECT 1 FROM events WHERE kind='brainstorm_blind' AND subject=?", (turn_id,)).fetchone():
                 raise Unavailable()
         try:
             result = self.spaces.read(scope, space_id, operation, *args, **kwargs)
