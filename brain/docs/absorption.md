@@ -55,14 +55,23 @@ without inserting any of its cards, including valid cards from earlier sections.
 The ledger's successful provider attempts describe completed API requests, not
 successful scientific extraction; inspect the generation/task status as well.
 
-Extraction contract v5 constrains dedicated citation fields to exact IDs in each
-call's JSON Schema enums. Narratives use readable prose and the formal evidence
-array remains card-level support, not manufactured claim-level annotation.
-Local validation still rejects unknown narrative references and out-of-chunk
-citations; no fuzzy ID correction is performed. Chunks contain at most 250 unique
-citation IDs (including equation context) as well as the character limit below.
-Changing this version requires a new approval plan; old failed outputs remain
-unchanged and are never relabeled successful by a parser or prompt change.
+Extraction contract v6 skips model-generated citations. The provider receives
+source content without internal block IDs and returns card content only. Brain
+attaches the input blocks with `source_context_only` relationships: these show
+what the model read, **not verified support for each claim**. Cards carry a
+visible source-context notice and remain unreviewed. This changes the extraction
+gate from model-selected citation accuracy to content-schema validity and exact
+application-maintained provenance; human review of faithfulness is still needed.
+
+Math extraction sends one equation per call (or repeated bounded context slices
+for an oversized surrounding passage). Brain attaches that known equation and
+copies its exact LaTeX, without asking the model to identify it. Consequently,
+Math call counts may increase compared with the old multi-equation batches;
+inspect the new approval preview. Raw responses and per-call source context IDs
+are ledgered separately. No earlier failed output is repaired or promoted.
+
+Input chunks retain the 250-source-block and character bounds. This contract
+requires a new approval plan; old approvals cannot dispatch under a new prompt.
 
 The job database uses WAL, foreign keys and atomic claims. An OS worker lock
 allows one foreground worker per space; it is released on process death. On the

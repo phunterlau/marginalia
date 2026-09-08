@@ -188,6 +188,8 @@ function renderCard() {
     ),
   ];
   parent.append(node("p", papers.join("\n"), "muted"));
+  if (s.citation_mode === "source_context_only")
+    parent.append(node("p", "Source context only: attached by Brain from the extraction input. These are not generated citations or verified claim-level support.", "badge"));
   if (c.generation)
     parent.append(
       node(

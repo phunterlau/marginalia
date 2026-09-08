@@ -34,7 +34,7 @@ class FakeExtractionProvider:
     def __init__(self, **_: object):
         pass
 
-    def extract(self, *, schema_name: str, evidence: list[dict], **_: object) -> dict:
+    def extract(self, *, schema_name: str, evidence: list[dict], schema=None, **_: object) -> dict:
         if schema_name == "MethodCardV1":
             paragraph = next(item for item in evidence if "paired contrast" in (item.get("raw_text") or ""))
             output = {"cards": [{
@@ -45,13 +45,13 @@ class FakeExtractionProvider:
                 "activation_access": True, "weight_access": False,
                 "assumptions": ["the pair isolates the feature"], "failure_modes": ["confounded pairs"],
                 "scientific_moves": ["paired contrast"],
-                "evidence": [{"block_id": paragraph["block_id"], "relation": "describes mechanism"}],
+                "evidence": [{"block_id": paragraph.get("block_id", "not_sent"), "relation": "describes mechanism"}],
             }]}
         else:
             equation = next(item for item in evidence if item.get("raw_latex"))
-            context_ids = [item["block_id"] for item in equation["context"]]
+            context_ids = [item.get("block_id", "not_sent") for item in equation["context"]]
             output = {"cards": [{
-                "name": "Contrast direction", "equation_block_id": equation["block_id"],
+                "name": "Contrast direction", "equation_block_id": equation.get("block_id", "not_sent"),
                 "semantic_gloss": "A direction is the difference of matched activations.",
                 "role": "method definition", "symbols": [
                     {"symbol": "d", "meaning": "direction"}, {"symbol": "h", "meaning": "activation"}],
@@ -59,6 +59,11 @@ class FakeExtractionProvider:
                 "failure_modes": ["confounding"], "math_move": "difference vector",
                 "context_block_ids": context_ids,
             }]}
+        if schema:
+            fields = schema["properties"]["cards"]["items"]["properties"]
+            for card in output["cards"]:
+                for key in set(card) - set(fields):
+                    del card[key]
         return {"response_id": "resp_test", "output": output, "usage": {"input_tokens": 10, "output_tokens": 5}}
 
 
@@ -213,7 +218,7 @@ class MilestoneTests(unittest.TestCase):
         ingested = self.brain.ingest(self.paper)
         result = self.brain.extract("math", ingested.document_id, live=True)
         record = self.brain.get_research_object(result.object_ids[0])
-        equation = next(item for item in record["evidence"] if item["relation"] == "defines")
+        equation = next(item for item in record["evidence"] if item["relation"] == "canonical_equation_source")
         self.assertEqual(record["structured"]["exact_latex"], equation["raw_latex"])
 
     def test_object_review_queue_filters_by_kind_state_origin_and_document(self) -> None:
@@ -283,7 +288,7 @@ class MilestoneTests(unittest.TestCase):
                     "SELECT prompt_version FROM generation_runs WHERE task='methods'"
                 )
             }
-        self.assertEqual(versions, {"evidence-cards-v5-chunk-citation-enums-250-output-cap-16384", "evidence-cards-next"})
+        self.assertEqual(versions, {"evidence-cards-v6-source-context-no-generated-citations", "evidence-cards-next"})
         latest = self.brain.list_research_objects(
             kinds=["method_card"], review_states=["UNREVIEWED"],
             document_id=ingested.document_id, latest_extraction_only=True,

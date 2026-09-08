@@ -18,7 +18,7 @@ from .store.sqlite import SQLiteStore, utc_now
 
 
 MAX_CHARS = 180_000
-PROMPT_VERSION = "evidence-cards-v5-chunk-citation-enums-250-output-cap-16384"
+PROMPT_VERSION = "evidence-cards-v6-source-context-no-generated-citations"
 MAX_CITATION_IDS = 250
 
 
@@ -44,8 +44,8 @@ class ExtractionResult:
     object_ids: tuple[str, ...]
 
 
-METHOD_INSTRUCTIONS = """Extract paper-specific methods only. Ground every claim in supplied evidence. Put citations in the formal evidence array, selecting exact block_id values from its schema enum, and explain their supporting relationship in relation. Keep titles and narrative fields readable: do not repeat block IDs there. The evidence array provides card-level support, not a claim-level annotation. Use null when an access requirement is not established. Do not infer experimental success or requirements that the evidence does not support."""
-MATH_INSTRUCTIONS = """Interpret important displayed equations. Select exactly one supplied equation_block_id and only supplied context block IDs from their schema enums. Put block IDs only in these dedicated citation fields, not in narrative text. Do not reproduce or alter LaTeX; the application copies canonical LaTeX from evidence after validation."""
+METHOD_INSTRUCTIONS = """Extract paper-specific methods from the supplied source context. Produce readable card content only; do not generate citations, block IDs, or evidence references. Source context is recorded by the application, not selected by you. Use null when an access requirement is not established. Do not infer experimental success or requirements that the context does not support."""
+MATH_INSTRUCTIONS = """Interpret the single supplied displayed equation and its surrounding context. Produce readable card content only; do not generate citations, block IDs, or evidence references. Do not reproduce or alter LaTeX; the application copies the exact equation from its source. Return no cards if there is no meaningful interpretation to extract."""
 
 
 def _chunk_ids(records: list[dict[str, Any]]) -> set[str]:
@@ -53,24 +53,41 @@ def _chunk_ids(records: list[dict[str, Any]]) -> set[str]:
 
 
 def _chunk_schema(task: str, chunk: list[dict[str, Any]]) -> dict[str, Any]:
-    """Constrain reference choices before generation; retain local validation."""
+    """The model supplies content only; provenance is attached by the caller."""
     ids = _chunk_ids(chunk)
     if not ids or len(ids) > MAX_CITATION_IDS:
         raise ValueError("Extraction chunk exceeds citation enum bounds")
     schema = deepcopy(METHOD_EXTRACTION_SCHEMA if task == "methods" else MATH_EXTRACTION_SCHEMA)
-    fields = schema["properties"]["cards"]["items"]["properties"]
-    if task == "methods":
-        fields["evidence"]["items"]["properties"]["block_id"] = {"type": "string", "enum": sorted(ids)}
-    else:
-        fields["equation_block_id"] = {"type": "string", "enum": sorted({r["block_id"] for r in chunk})}
-        context_ids = sorted({item["block_id"] for record in chunk for item in record.get("context", [])})
-        # Replace the shared STRING_ARRAY object rather than mutating its items.
-        fields["context_block_ids"] = {"type": "array", "items": {"type": "string"}}
-        if context_ids:
-            fields["context_block_ids"]["items"]["enum"] = context_ids
-        else:
-            fields["context_block_ids"]["maxItems"] = 0
+    card = schema["properties"]["cards"]["items"]
+    for field in (["evidence"] if task == "methods" else ["equation_block_id", "context_block_ids"]):
+        del card["properties"][field]
+        card["required"].remove(field)
     return schema
+
+
+def _provider_context(chunk: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Do not ask the model to copy identifiers it does not need to see."""
+    def strip(value):
+        if isinstance(value, dict):
+            return {key: strip(item) for key, item in value.items() if key != "block_id"}
+        if isinstance(value, list):
+            return [strip(item) for item in value]
+        return value
+    return strip(chunk)
+
+
+def _attach_context(task: str, output: dict[str, Any], chunk: list[dict[str, Any]]) -> dict[str, Any]:
+    result = deepcopy(output)
+    for card in result["cards"]:
+        if task == "methods":
+            card["evidence"] = [{"block_id": key, "relation": "source_context_only"}
+                                for key in sorted(_chunk_ids(chunk))]
+        else:
+            if len(chunk) != 1:
+                raise ValueError("Citation-free math extraction requires one equation per call")
+            card["equation_block_id"] = chunk[0]["block_id"]
+            card["context_block_ids"] = sorted({r["block_id"] for r in chunk[0].get("context", [])})
+    return result
 
 
 def _evidence_record(block: dict[str, Any]) -> dict[str, Any]:
@@ -177,7 +194,9 @@ def _math_chunks(blocks: list[dict[str, Any]]) -> list[list[dict[str, Any]]]:
                     bundle = {**record, "context": []}
                 bundle["context"].append(part)
         records.append(bundle)
-    return _pack_records(records)
+    # Each interpretation has one unambiguous canonical equation without asking
+    # the model to identify it. Oversized context may yield multiple bounded calls.
+    return [[record] for record in records]
 
 
 class Extractor:
@@ -214,7 +233,9 @@ class Extractor:
         run_id, created = self.store.begin_generation(
             run_id=run_id, task=task, provider="openai", model=model, reasoning_effort=effort,
             prompt_version=PROMPT_VERSION, schema_version=schema_version, input_digest=input_digest,
-            block_ids=block_ids, request={"store": False, "chunk_count": len(chunks), "max_output_tokens": 16_384}, force=force,
+            block_ids=block_ids, request={"store": False, "chunk_count": len(chunks), "max_output_tokens": 16_384,
+                                         "citation_mode": "source_context_only",
+                                         "source_contexts": [sorted(_chunk_ids(chunk)) for chunk in chunks]}, force=force,
         )
         if run_callback:
             run_callback(run_id)
@@ -226,6 +247,7 @@ class Extractor:
         schema = METHOD_EXTRACTION_SCHEMA if task == "methods" else MATH_EXTRACTION_SCHEMA
         instructions = METHOD_INSTRUCTIONS if task == "methods" else MATH_INSTRUCTIONS
         outputs: list[Any] = []
+        attributed_outputs: list[dict[str, Any]] = []
         merged: dict[str, Any] | None = None
         response_ids: list[str] = []
         total_usage: dict[str, int] = {}
@@ -247,7 +269,7 @@ class Extractor:
                     self.store.dispatch_attempt(run_id=run_id, number=attempt_number, started_at=started)
                     try:
                         response = provider.extract(schema_name=schema_version, schema=chunk_schema,
-                                                    instructions=instructions, evidence=chunk)
+                                                    instructions=instructions, evidence=_provider_context(chunk))
                         outputs.append(response["output"])
                         response_ids.append(response.get("response_id", ""))
                         for key, value in response.get("usage", {}).items():
@@ -278,14 +300,16 @@ class Extractor:
                 # Stop before spending on later chunks when this one is invalid;
                 # retain all outputs but commit no cards from a partial task.
                 validate_schema_shape(outputs[-1], chunk_schema)
+                attributed = _attach_context(task, outputs[-1], chunk)
                 if task == "methods":
-                    validate_method_cards(outputs[-1], allowed_ids)
+                    validate_method_cards(attributed, allowed_ids)
                 else:
-                    validate_math_cards(outputs[-1], chunk_blocks)
+                    validate_math_cards(attributed, chunk_blocks)
+                attributed_outputs.append(attributed)
             merged_cards: list[dict[str, Any]] = []
             seen_cards: set[tuple[str, tuple[str, ...]]] = set()
             block_map = {block["id"]: block for block in blocks}
-            for output in outputs:
+            for output in attributed_outputs:
                 # Validate each response before merging: malformed chunks must
                 # not disappear into a seemingly valid empty or partial result.
                 validate_schema_shape(output, schema)
@@ -296,7 +320,7 @@ class Extractor:
                 for card in output.get("cards", []):
                     evidence_ids = tuple(sorted(
                         ref.get("block_id", "") for ref in card.get("evidence", [])
-                    )) if isinstance(card, dict) else ()
+                    )) if task == "methods" else (card["equation_block_id"], *sorted(card["context_block_ids"]))
                     key = (str(card.get("name", "")).casefold().strip(), evidence_ids) if isinstance(card, dict) else ("", ())
                     if key not in seen_cards:
                         seen_cards.add(key)
@@ -313,19 +337,25 @@ class Extractor:
                     body = f"{card.problem}\n\nMechanism: {card.mechanism}"
                     kind = "method_card"
                 else:
-                    evidence = [(card.equation_block_id, "defines")]
-                    evidence.extend((item, "context") for item in card.context_block_ids)
+                    evidence = [(card.equation_block_id, "canonical_equation_source")]
+                    evidence.extend((item, "source_context_only") for item in card.context_block_ids)
                     body = f"{card.semantic_gloss}\n\n{card.exact_latex}"
                     kind = "math_card"
                 objects.append({"kind": kind, "title": card.name, "body": body,
-                                "structured": {"schema": schema_version, **structured}, "evidence": evidence})
+                                "structured": {"schema": schema_version, **structured,
+                                               "citation_mode": "source_context_only",
+                                               "evidence_notice": "Application-attached input context; not claim-level citations or verified support."},
+                                "evidence": evidence})
             created_objects = self.store.create_extracted_objects(objects, run_id=run_id,
-                completion={"response_ids": response_ids, "output": merged, "usage": total_usage})
+                completion={"response_ids": response_ids,
+                            "output": {**merged, "chunk_outputs": outputs, "citation_mode": "source_context_only"},
+                            "usage": total_usage})
             return ExtractionResult(plan, run_id, False, tuple(item.id for item in created_objects))
         except Exception as exc:
             self.store.finish_generation(run_id, status="failed",
                                          response_id=json.dumps(response_ids) if response_ids else None,
-                                         output=merged if merged is not None else ({"chunk_outputs": outputs} if outputs else None),
+                                         output={**(merged or {}), "chunk_outputs": outputs,
+                                                 "citation_mode": "source_context_only"} if outputs else None,
                                          usage=total_usage or None,
                                          error={"type": type(exc).__name__, "message": str(exc)})
             raise
