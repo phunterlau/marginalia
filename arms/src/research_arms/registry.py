@@ -368,11 +368,16 @@ class ArmsRegistry:
 
     def read(self, turn_id, space_id, operation, *args, **kwargs):
         """Worker-only capability: no caller-provided scope or principal."""
-        if operation not in {"search", "recall", "get_document", "get_evidence", "get_research_object"}:
+        if operation not in {"search", "recall", "get_document", "get_evidence", "get_research_object", "search_discussions"}:
             raise Unavailable()
         if len(args) != 1 or not isinstance(args[0], str):
             raise ValueError("Exactly one text argument is required")
-        if operation in {"search", "recall"}:
+        if operation == "search_discussions":
+            if (not args[0].strip() or len(args[0]) > 2000 or set(kwargs) - {"limit"}
+                    or type(kwargs.get("limit", 3)) is not int or not 1 <= kwargs.get("limit", 3) <= 3):
+                raise ValueError("Invalid discussion query; limit must be 1..3")
+            kwargs.setdefault("limit", 3)
+        elif operation in {"search", "recall"}:
             if not args[0].strip() or len(args[0]) > 20_000 or set(kwargs) - {"limit", "kinds"}:
                 raise ValueError("Invalid retrieval request")
             if type(kwargs.get("limit", 10)) is not int or not 1 <= kwargs.get("limit", 10) <= 50:

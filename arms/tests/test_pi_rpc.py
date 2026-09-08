@@ -10,7 +10,8 @@ from research_arms.pi_rpc import PiRPC, PiProtocolError, launch_arguments
 
 
 @pytest.mark.parametrize("tools,valid", [
-    (["research_recall", "research_object", "research_evidence"], True),
+    (["research_recall", "research_object", "research_evidence", "research_discussed"], True),
+    (["research_recall", "research_object", "research_evidence"], False),
     (["research_recall", "bash"], False),
     (["research_recall", "research_object", "research_evidence", "read"], False),
 ])

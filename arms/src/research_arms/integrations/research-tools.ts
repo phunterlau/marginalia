@@ -62,4 +62,12 @@ export default function (pi: ExtensionAPI) {
       },
     }));
   }
+  pi.registerTool(defineTool({
+    name: "research_discussed", label: "Discussion search",
+    description: "Search recorded bot-directed exchanges in an explicitly permitted space. Attribute questions to their author and answers to the assistant; cite message links. Discussion is not accepted scientific evidence. No match does not prove a topic was never discussed, and edited or deleted messages may not yet be reflected. Never infer history outside the authorized scope.",
+    parameters: Type.Object({ space_id: Type.String(), query: Type.String({ minLength: 1, maxLength: 2000 }), limit: Type.Optional(Type.Integer({ minimum: 1, maximum: 3 })) }),
+    async execute(_id, { space_id, query, limit }, signal) {
+      return { content: [{ type: "text", text: await request("research_discussed", space_id, { query, limit: limit ?? 3 }, signal) }], details: {} };
+    },
+  }));
 }

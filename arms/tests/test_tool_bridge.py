@@ -67,3 +67,32 @@ def test_transport_revoked_between_read_and_tool_result(setup):
             assert len(checks) == 2
         finally: await bridge.close()
     asyncio.run(run())
+
+
+def test_discussion_tool_is_scoped_bounded_and_not_scientific_recall(setup):
+    arms, spaces = setup
+    payload = {"id": "history", "revision": 1, "conversation_id": "previous", "author": "alice",
+        "question": "Contrast directions", "answer": "Prior discussion only", "guild_id": "10", "channel_id": "20",
+        "message_id": "100", "answer_message_id": "101", "pi_entry_id": "entry", "deleted": False,
+        "recorded_at": "2026-09-07T12:00:00+00:00"}
+    spaces.open("project").record_discussion(payload)
+    spaces.open("alice").record_discussion({**payload, "guild_id": None, "question": "PRIVATE_CANARY"})
+    async def run():
+        ident = turn(arms, shared(arms))
+        arms.claim()
+        bridge = await ToolBridge(arms).start()
+        try:
+            token = bridge.bind(ident)["token"]
+            args = {"tool": "research_discussed", "arguments": {"query": "Contrast"}}
+            result = await call(bridge, token, **args)
+            assert result["ok"] and "Prior discussion only" in json.dumps(result)
+            assert "NOT_SCIENTIFIC_MEMORY" in json.dumps(result)
+            assert not (await call(bridge, token, **{**args, "space_id": "alice"}))["ok"]
+            for bad in ({"query": "x", "limit": 4}, {"query": "x", "kinds": ["note"]}, {"query": "x" * 2001}):
+                assert not (await call(bridge, token, tool="research_discussed", arguments=bad))["ok"]
+            science = await call(bridge, token, arguments={"query": "Contrast"})
+            assert "Prior discussion only" not in json.dumps(science)
+            spaces.set_membership("project", "bob", None)
+            assert not (await call(bridge, token, **args))["ok"]
+        finally: await bridge.close()
+    asyncio.run(run())

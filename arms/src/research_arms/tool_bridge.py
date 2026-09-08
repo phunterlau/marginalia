@@ -12,7 +12,7 @@ from .registry import Unavailable
 class ToolBridge:
     MAX_REQUEST = 90_000
     OPERATIONS = {"research_recall": "recall", "research_evidence": "get_evidence",
-                  "research_object": "get_research_object"}
+                  "research_object": "get_research_object", "research_discussed": "search_discussions"}
 
     def __init__(self, registry):
         self.registry = registry
@@ -76,7 +76,7 @@ class ToolBridge:
             args = request["arguments"]
             if not isinstance(args, dict):
                 raise ValueError("Invalid arguments")
-            key = "query" if operation == "recall" else "id"
+            key = "query" if operation in {"recall", "search_discussions"} else "id"
             if key not in args or set(args) - ({key, "limit", "kinds"} if key == "query" else {key}):
                 raise ValueError("Invalid arguments")
             result = await asyncio.wait_for(asyncio.to_thread(self.registry.read, turn, request["space_id"],

@@ -48,7 +48,7 @@ class PiRPC:
         if tool_auth_file is not None:
             auth_path = Path(tool_auth_file).resolve(strict=True)
             argv[argv.index("--no-tools")] = "--no-builtin-tools"
-            argv.extend(["--tools", "research_recall,research_evidence,research_object", "--extension",
+            argv.extend(["--tools", "research_recall,research_evidence,research_object,research_discussed", "--extension",
                          str(Path(__file__).parent / "integrations" / "research-tools.ts")])
         directory = Path(session_directory)
         directory.mkdir(parents=True, exist_ok=True, mode=0o700)
@@ -109,7 +109,7 @@ class PiRPC:
                     notice = json.loads(event.get("message", "{}"))
                     if notice.get("type") != "arms_tools_ready":
                         raise PiProtocolError("Unexpected Pi notification")
-                    if sorted(notice.get("tools", [])) != ["research_evidence", "research_object", "research_recall"]:
+                    if sorted(notice.get("tools", [])) != ["research_discussed", "research_evidence", "research_object", "research_recall"]:
                         raise PiProtocolError("Unexpected active Pi tools")
                     self.tools_ready.set()
                 elif event.get("type") == "response":

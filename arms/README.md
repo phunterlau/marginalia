@@ -102,7 +102,7 @@ IDs a future supervisor must abort. It does not itself terminate processes.
 `research_arms.pi_rpc.PiRPC` launches Pi without a shell, uses an exact session
 UUID and backend session directory, disables built-in tools and implicit
 extensions/skills/templates/context files, and disables automatic retries. This
-client optionally loads exactly three scope-bound research tools through
+client optionally loads exactly four scope-bound research tools through
 `ToolBridge` and the bundled extension. Environment API keys are excluded; Pi's
 configured login is the intended authentication route for future synthesis.
 
@@ -116,7 +116,7 @@ check also succeeded with zero model prompts and an isolated configuration.
 The bridge uses a private local Unix socket with a per-turn rotating capability.
 Only the supervisor binds a running turn; model arguments cannot choose a
 principal, session, turn or filesystem path. The extension exposes only
-`research_recall`, `research_evidence`, and `research_object`, each requiring a
+`research_recall`, `research_evidence`, `research_object`, and `research_discussed`, each requiring a
 space identity. Pi startup checks the exact active tool set via its supported
 RPC notification channel (ordinary stdout is intercepted by Pi). Run the
 optional installed-Pi startup test with `ARMS_TEST_PI=/absolute/path/to/pi`.
@@ -347,10 +347,14 @@ writer and local recovery quarantines RUNNING projection jobs. Original question
 channels are preserved for paper-starter replies; unknown legacy locations are
 not invented. Migration does not backfill historical deliveries. Brain schema 003
 must be migrated explicitly before projection. Edits/deletions, historical
-backfill/retry controls and Pi discussion-tool integration remain pending.
+backfill/retry controls remain pending. Pi can use `research_discussed` with an
+explicit permitted space, a query of at most 2000 characters, and at most three
+results. The same turn-bound credentials, revocation checks and output limits
+apply. Results label discussion as non-scientific memory and identify question
+authors separately from assistant answers. Scientific recall is unchanged.
 
 This is a partial pilot, **not a validated live deployment**. Complete Discord
-recovery controls, discussion revision events/Pi integration and reactions still need integration.
+recovery controls, discussion revision events and reactions still need integration.
 The delivery and permissions paths are mock-tested, not live-tested. There is no
 HTTP listener, installed daemon or LaunchAgent.
 
