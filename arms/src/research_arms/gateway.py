@@ -21,6 +21,7 @@ from .absorption import ScopedAbsorption
 from .submissions import PaperSubmissions
 from .paid_worker import PaidAbsorptionWorker
 from .paper_threads import PaperThreads
+from .thread_worker import PaperThreadWorker
 from .forks import fork_conversation
 from .registry import snowflake
 from research_brain.jobs import SpendingLimits
@@ -49,6 +50,7 @@ class ResearchGateway(discord.Client):
         self.running_turns = set()
         self.gateway_online = False
         self.submissions = self.source_task = None
+        self.thread_worker = self.thread_task = None
         self.tree = app_commands.CommandTree(self)
         self._commands()
 
@@ -123,7 +125,10 @@ class ResearchGateway(discord.Client):
             self.access = DiscordAccess(self.registry, self.rest, str(self.user.id))
             self.supervisor = Supervisor(self.registry, self.pi_executable,
                                          authorize_turn=self.access.authorize_turn)
-            self.submissions = PaperSubmissions(self.registry, self.access, service_factory=self.absorption_factory)
+            self.submissions = PaperSubmissions(self.registry, self.access, service_factory=self.absorption_factory,
+                automatic_threads=True)
+            self.thread_worker = PaperThreadWorker(self.registry, self.access, self.submissions,
+                PaperThreads(self.registry, self.access, self.rest, str(self.user.id), service_factory=self.absorption_factory))
             self.paid_worker = PaidAbsorptionWorker(self.registry, self.access,
                 enabled=self.run_approved_absorption, service_factory=self.absorption_factory)
         if self.pump is None or self.pump.done():
@@ -321,6 +326,12 @@ class ResearchGateway(discord.Client):
                 self.source_task = None
             if self.source_task is None:
                 self.source_task = asyncio.create_task(self.submissions.work_once())
+            if self.thread_task is not None and self.thread_task.done():
+                try: self.thread_task.result()
+                except Exception: pass
+                self.thread_task = None
+            if self.thread_task is None:
+                self.thread_task = asyncio.create_task(self.thread_worker.work_once())
             if self.paid_task is not None and self.paid_task.done():
                 try: self.paid_task.result()
                 except Exception: pass
@@ -343,6 +354,7 @@ class ResearchGateway(discord.Client):
             await asyncio.sleep(2)
 
     async def close(self):
+        if self.thread_worker: self.thread_worker.stopping = True
         if self.paid_worker: self.paid_worker.stopping = True
         if self.pump:
             self.pump.cancel()
@@ -352,6 +364,7 @@ class ResearchGateway(discord.Client):
         # A source ingest runs in a thread; cancelling its asyncio waiter would
         # not stop disk writes. Join it before releasing process ownership.
         if self.source_task: await asyncio.gather(self.source_task, return_exceptions=True)
+        if self.thread_task: await asyncio.gather(self.thread_task, return_exceptions=True)
         if self.paid_task: await asyncio.gather(self.paid_task, return_exceptions=True)
         if self.supervisor: await self.supervisor.close()
         if self.rest: await self.rest.aclose()

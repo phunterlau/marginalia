@@ -13,8 +13,9 @@ from .registry import Unavailable, encode, now, snowflake
 
 
 class PaperSubmissions:
-    def __init__(self, registry, access, *, service_factory=ScopedAbsorption):
+    def __init__(self, registry, access, *, service_factory=ScopedAbsorption, automatic_threads=False):
         self.registry, self.access, self.service_factory = registry, access, service_factory
+        self.automatic_threads = automatic_threads
 
     def enqueue(self, actor, channel, guild, space, request_id, url, *, limits):
         snowflake(request_id), snowflake(actor), snowflake(channel)
@@ -60,7 +61,9 @@ class PaperSubmissions:
             scope = self.registry.spaces.scope(principal, conversation_id=ident, writable_space=space)
             self.registry.spaces.validate(scope, maintainer=True)
             if json.loads(row["scope_json"])["writable_space"] != space: raise Unavailable()
+            thread = db.execute("SELECT state,thread_id FROM paper_thread_jobs WHERE submission_id=?", (ident,)).fetchone()
             return {"submission_id": ident, "space_id": space, "state": row["state"], "job_id": row["job_id"],
+                    "paper_thread": dict(thread) if thread else None,
                     "notice": "Source preparation only. Paid work requires a separate exact-plan approval."}
 
     async def work_once(self):
@@ -85,6 +88,8 @@ class PaperSubmissions:
             with self.registry.connect() as db:
                 db.execute("UPDATE paper_submissions SET state='SOURCE_READY',job_id=? WHERE id=?", (result["job_id"], row["id"]))
                 db.execute("INSERT INTO events(kind,subject,at) VALUES ('source_prepared',?,?)", (row["id"], now()))
+                if self.automatic_threads and row["guild_id"] is not None:
+                    db.execute("INSERT INTO paper_thread_jobs VALUES (?,'QUEUED',NULL,?)", (row["id"], now()))
         except BaseException:
             with self.registry.connect() as db:
                 db.execute("UPDATE paper_submissions SET state='NEEDS_ATTENTION' WHERE id=?", (row["id"],))

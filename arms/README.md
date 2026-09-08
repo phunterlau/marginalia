@@ -21,14 +21,15 @@ Keep operational databases, source archives, backups, credentials and Pi session
 outside the checkout. `ArmsRegistry(..., create=True)` explicitly creates a new
 operational registry; ordinary opening never initializes or migrates a database.
 
-Registry version 5 adds pinned-paper thread checkpoints; version 4 added source submissions; version 3 added fork staging and
+Registry version 6 adds the automatic thread outbox; version 5 added pinned-paper
+thread checkpoints; version 4 added source submissions; version 3 added fork staging and
 version 2 added routing. For a version-1
 registry, stop workers first and invoke the trusted local
 `research_arms.migrations.migrate_v1_to_v2(root)` function. It refuses a held
 worker lock or RUNNING claims, verifies a private SQLite backup, then migrates
 transactionally. It returns the backup path (or `None` if already current).
 Then run `migrate_v2_to_v3(root)`, `migrate_v3_to_v4(root)`, and
-`migrate_v4_to_v5(root)` from the same module in order, starting at the registry's
+`migrate_v4_to_v5(root)`, then `migrate_v5_to_v6(root)` from the same module in order, starting at the registry's
 current version. Each step creates its own verified backup.
 Opening an old registry does not perform migrations automatically.
 
@@ -232,8 +233,18 @@ are idempotent. Missing resources or a missing nonce stay unresolved; Discord
 documents nonce as optional, so this is not guaranteed recovery for every remote
 message. In-flight checkpoints after process termination require trusted offline
 recovery first. A conflicting preexisting session also requires local inspection.
-Automatic creation after ingestion and recovery of missing remote resources remain pending.
+Recovery of missing remote resources remains pending.
 This command creates a starter but does not pin the Discord message.
+
+New shared Gateway submissions automatically enqueue thread work in the same
+transaction that records source completion. One independent thread worker uses
+the submitter's original scope and fresh Discord/maintainer checks. DM submissions
+never queue shared threads. Thread failure does not invalidate the source or
+approve/replay paid work. `/paper submission` reports the thread job separately.
+Repeated paper revisions reuse completed threads. Uncertain operations are not
+retried, and stale RUNNING thread jobs require local recovery. Graceful shutdown
+joins an in-flight thread operation before releasing worker ownership. Migration
+does not backfill historical submissions or unexpectedly post their papers.
 
 `--run-approved-absorption` opts the Gateway into background paid processing of
 exact, already approved submission jobs. It is off by default. The worker checks
@@ -251,8 +262,8 @@ personal operations require the owner. Submission requires explicit spending
 limits and does not itself run model work. No live scoped absorption has
 been performed through this service.
 
-This is a partial pilot, **not a validated live deployment**. Automatic paper-thread
-creation, Discord reconciliation controls, publication consent,
+This is a partial pilot, **not a validated live deployment**. Complete Discord
+recovery controls, publication consent,
 scientific reviews, discussion search and reactions still need integration.
 The delivery and permissions paths are mock-tested, not live-tested. There is no
 HTTP listener, installed daemon or LaunchAgent.

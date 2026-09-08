@@ -44,7 +44,7 @@ def visibility(scope):
 
 
 class ArmsRegistry:
-    VERSION = 5
+    VERSION = 6
 
     def __init__(self, root, spaces: SpaceRegistry, *, create=False):
         self.root = Path(root).resolve()
@@ -56,7 +56,7 @@ class ArmsRegistry:
             with self.connect(create=True) as db:
                 db.executescript("""
                     CREATE TABLE meta(version INTEGER NOT NULL);
-                    INSERT INTO meta VALUES (5);
+                    INSERT INTO meta VALUES (6);
                     CREATE TABLE principals(discord_user TEXT PRIMARY KEY, principal TEXT UNIQUE NOT NULL,
                                             personal_space TEXT NOT NULL);
                     CREATE TABLE channels(guild_id TEXT NOT NULL, channel_id TEXT NOT NULL,
@@ -95,6 +95,8 @@ class ArmsRegistry:
                         revision TEXT NOT NULL, state TEXT NOT NULL, starter_id TEXT, thread_id TEXT,
                         conversation_id TEXT, created_at TEXT NOT NULL,
                         UNIQUE(space_id,guild_id,parent_id,document_id,revision));
+                    CREATE TABLE paper_thread_jobs(submission_id TEXT PRIMARY KEY REFERENCES paper_submissions(id),
+                        state TEXT NOT NULL, thread_id TEXT, created_at TEXT NOT NULL);
                 """)
         with self.connect(readonly=True) as db:
             if [r[0] for r in db.execute("SELECT version FROM meta")] != [self.VERSION]:

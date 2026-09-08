@@ -23,6 +23,10 @@ def migrate_v4_to_v5(root):
     return _migrate(root, 4, 5, "CREATE TABLE paper_threads(id TEXT PRIMARY KEY, space_id TEXT NOT NULL, guild_id TEXT NOT NULL, parent_id TEXT NOT NULL, document_id TEXT NOT NULL, revision TEXT NOT NULL, state TEXT NOT NULL, starter_id TEXT, thread_id TEXT, conversation_id TEXT, created_at TEXT NOT NULL, UNIQUE(space_id,guild_id,parent_id,document_id,revision))")
 
 
+def migrate_v5_to_v6(root):
+    return _migrate(root, 5, 6, "CREATE TABLE paper_thread_jobs(submission_id TEXT PRIMARY KEY REFERENCES paper_submissions(id), state TEXT NOT NULL, thread_id TEXT, created_at TEXT NOT NULL)")
+
+
 def _migrate(root, previous, current, statement):
     root = Path(root).resolve(strict=True)
     path = root / "arms.sqlite3"

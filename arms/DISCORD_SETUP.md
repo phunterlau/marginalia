@@ -1,7 +1,7 @@
 # Foreground Discord pilot
 
 This is a partial pilot: conversation, source-submission and approved-job execution are implemented;
-explicit starter-thread creation is available, while automatic creation, recovery
+automatic shared starter-thread creation is available, while complete recovery
 controls, reactions and publication remain pending. Do not treat it as the completed team-sharing release.
 
 ## Create a dedicated application
@@ -19,8 +19,9 @@ Reactions will need their own explicitly tested intent setup.
 
 For OAuth2 installation, select `bot` and `applications.commands`. Grant View
 Channels, Send Messages, Send Messages in Threads, Read Message History, and
-Attach Files in the selected research channel. Add Create Public Threads to use
-`/paper thread`. Do not grant Administrator. Message pinning is not implemented.
+Attach Files and Create Public Threads in the selected research channel. Thread
+creation follows successful shared source preparation. Do not grant Administrator.
+Message pinning is not implemented.
 Once the application ID is available, generate the exact installation URL using
 Discord's OAuth2 URL Generator and review the requested permissions there.
 
@@ -97,8 +98,10 @@ login, with built-in tools and implicit resources disabled.
    by the command options; it does not approve spending. Inspect the returned ID
    with `/paper submission submission_id:...`, then inspect its job before approval.
    Failed/interrupted source requests require local reconciliation. No automatic
-   retry is performed. In a configured shared channel, `/paper thread job_id:...`
-   creates its starter and dedicated thread. Repeating the command reuses the
+   retry is performed. In a configured shared channel, source completion queues
+   its starter and dedicated thread automatically; `/paper submission` reports
+   that separate job's status. DMs do not create shared threads. For an existing
+   source job, `/paper thread job_id:...` is also available. Repeating it reuses the
    same revision's thread. Different revisions get different threads. Uncertain
    sends can be checked with `/paper reconcile job_id:... starter_message_id:...`.
    This only adopts verified existing Discord resources; it never resends. Missing
