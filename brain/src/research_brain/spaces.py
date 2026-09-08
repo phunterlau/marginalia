@@ -174,6 +174,34 @@ class SpaceRegistry:
         """Trusted local CLI open. Network callers must use scoped operations."""
         return Brain(self.get(space_id)["root"], initialize=False)
 
+    def review_card(self, scope: ContextScope, object_id: str, *, review_state: str,
+                    expected_version: str, note: str | None = None, actor: str = "user"):
+        """Maintainer-only review in the writable space, never a Pi read tool.
+
+        Hold the policy writer lock through the Brain transaction so membership
+        revocation cannot race a scientific review across the separate databases.
+        """
+        if review_state not in {"ACCEPTED", "DISPUTED", "REJECTED"}:
+            raise ValueError("Invalid review decision")
+        if not isinstance(expected_version, str) or not 1 <= len(expected_version) <= 100:
+            raise ValueError("A current review version is required")
+        if note is not None and (not isinstance(note, str) or len(note) > 4000 or "\x00" in note):
+            raise ValueError("Invalid review note")
+        if review_state != "ACCEPTED" and not (note or "").strip():
+            raise ValueError("A note is required for dispute or rejection")
+        with self.connect() as policy:
+            policy.execute("BEGIN IMMEDIATE")
+            self.validate(scope, space_id=scope.writable_space, maintainer=True)
+            brain = self.open(scope.writable_space)
+            record = brain.get_research_object(object_id)
+            if record is None or record["kind"] not in {"method_card", "math_card"} or not record["evidence"]:
+                raise LookupError("Evidence-backed card unavailable")
+            result = brain.review_research_object(object_id, review_state=review_state,
+                expected_version=expected_version, note=note, actor=actor)
+            return {"space_id": scope.writable_space, "object_id": result.id,
+                    "review_state": result.review_state, "updated_at": result.updated_at,
+                    "origin": result.origin}
+
     def read(self, scope: ContextScope, space_id: str, operation: str, *args, **kwargs):
         """A bounded read-only entry point; rechecks revocation before returning.
 

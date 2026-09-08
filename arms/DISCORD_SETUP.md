@@ -124,7 +124,17 @@ login, with built-in tools and implicit resources disabled.
 
 Paid execution is off by default. With `--run-approved-absorption`, the worker
 considers only Gateway submission jobs that already have an explicit approval.
-It rechecks the source submitter and approver's maintainer/Discord access before
+
+For human scientific review, run `/card show object_id:...` and inspect the card
+and evidence. Use its `updated_at` value as `/card review`'s `expected_version`.
+Choose ACCEPTED, DISPUTED or REJECTED; dispute/reject require a note. Acceptance
+means faithful representation of the cited source and qualifications, and enables
+reliable recall eligibility—not universal correctness. Shared maintainers and
+personal owners can submit decisions. Reload after a conflict; duplicate stale
+submissions do not add a second event. Large cards must be reviewed in the local
+workbench. This workflow does not let Pi review cards.
+
+The paid worker rechecks the source submitter and approver's maintainer/Discord access before
 provider dispatch, targets that exact job, and preserves existing ceilings and
 attempt ledgers. Set `OPENAI_API_KEY` only in the backend environment. Shutdown
 blocks future dispatches and waits for the currently dispatched call to settle;

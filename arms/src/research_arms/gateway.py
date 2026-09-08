@@ -22,6 +22,7 @@ from .submissions import PaperSubmissions
 from .paid_worker import PaidAbsorptionWorker
 from .paper_threads import PaperThreads
 from .thread_worker import PaperThreadWorker
+from .reviews import CardReviews
 from .forks import fork_conversation
 from .registry import snowflake
 from research_brain.jobs import SpendingLimits
@@ -55,6 +56,17 @@ class ResearchGateway(discord.Client):
         self._commands()
 
     def _commands(self):
+        card = app_commands.Group(name="card", description="Inspect evidence-backed research cards and record human review")
+        @card.command(name="show", description="Read a card, its evidence and the version required for review")
+        async def card_show(interaction: discord.Interaction, object_id: str):
+            await self.execute(interaction, "card_show", object_id=object_id)
+
+        @card.command(name="review", description="Human source-faithfulness review; acceptance enables reliable recall")
+        @app_commands.choices(decision=[app_commands.Choice(name=value, value=value) for value in ("ACCEPTED", "DISPUTED", "REJECTED")])
+        async def card_review(interaction: discord.Interaction, object_id: str, decision: str, expected_version: str, note: str = ""):
+            await self.execute(interaction, "card_review", object_id=object_id, decision=decision,
+                expected_version=expected_version, note=note)
+        self.tree.add_command(card)
         paper = app_commands.Group(name="paper", description="Read paper records in this destination's Brain space")
         def paper_command(operation):
             async def callback(interaction: discord.Interaction, identifier: str):
@@ -214,6 +226,8 @@ class ResearchGateway(discord.Client):
         except ValueError:
             text = ("Approval status not confirmed. Inspect /paper job and use its exact plan digest with confirm:true."
                     if command == "paper_approve" else
+                    "Review not confirmed. Reload /card show for the current version; dispute/reject require a note. Oversized cards need the local review workbench."
+                    if command.startswith("card_") else
                     "Invalid or oversized request. Use an exact conversation ID and at most 20,000 characters of UTF-8 text.")
         except Exception:
             text = "Research operation unavailable. Check your selected session, access, or backend recovery status."
@@ -221,6 +235,13 @@ class ResearchGateway(discord.Client):
 
     async def handle(self, command, actor, channel, guild, message_id, destination, **options):
         """Internal authenticated handler; never expose caller-supplied destination data."""
+        if command in {"card_show", "card_review"}:
+            await self.access.authorize(actor, channel_id=channel, guild_id=guild, expected_space=destination["space_id"])
+            def operate():
+                service = CardReviews(self.registry, actor, destination["space_id"])
+                if command == "card_show": return service.show(options["object_id"])
+                return service.decide(options["object_id"], options["decision"], options["expected_version"], options["note"])
+            return await asyncio.to_thread(operate)
         if command == "fork":
             answer = snowflake(options["answer_message_id"])
             if self.supervisor is None or self.fork_node is None: raise Unavailable()

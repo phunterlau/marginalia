@@ -283,9 +283,20 @@ personal operations require the owner. Submission requires explicit spending
 limits and does not itself run model work. No live scoped absorption has
 been performed through this service.
 
+`/card show object_id:...` returns a Method/Math card with its exact stored evidence
+and `updated_at` version. `/card review object_id:... decision:... expected_version:...`
+records an explicit human judgment in the current space; shared maintainers and
+personal owners can write, while ordinary shared members can inspect. Dispute and
+rejection require a note (maximum 4000 characters). Acceptance means faithful
+representation of the cited source and its qualifications, not universal truth
+or suitability. It makes the card eligible for reliable recall without changing
+agent origin or content. Reviews require evidence, use atomic version checks, and
+append Brain's audit event with the Discord actor. Stale submissions must reload;
+they are not automatically retried. Oversized cards require the local workbench.
+Pi tools remain read-only, and no real cards have been accepted by automated tests.
+
 This is a partial pilot, **not a validated live deployment**. Complete Discord
-recovery controls, publication consent,
-scientific reviews, discussion search and reactions still need integration.
+recovery controls, publication consent, discussion search and reactions still need integration.
 The delivery and permissions paths are mock-tested, not live-tested. There is no
 HTTP listener, installed daemon or LaunchAgent.
 
