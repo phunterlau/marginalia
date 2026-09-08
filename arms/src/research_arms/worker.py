@@ -147,3 +147,20 @@ class Supervisor:
             if self.ownership is not None:
                 os.close(self.ownership)
                 self.ownership = None
+
+    async def stop(self, conversation, discord_user, *, channel_id, guild_id=None):
+        async with self.lock:
+            result = self.registry.stop_conversation(conversation, discord_user,
+                                                     channel_id=channel_id, guild_id=guild_id)
+            worker = self.workers.get(conversation)
+            if worker:
+                worker["bridge"].unbind()
+                try:
+                    # Pi clears its own pending queue before aborting. Closing
+                    # below also handles a hung or rejected abort without reuse.
+                    await asyncio.wait_for(worker["client"].abort(), 5)
+                except Exception:
+                    pass
+                finally:
+                    await self._retire(conversation)
+            return result

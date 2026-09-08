@@ -161,10 +161,10 @@ class ArmsRegistry:
                         name.strip(), "OPEN", now()))
             return conversation
 
-    def _authorized(self, db, conversation_id, discord_user, channel_id, guild_id):
+    def _authorized(self, db, conversation_id, discord_user, channel_id, guild_id, *, statuses=("OPEN",)):
         principal = self._principal(db, discord_user)
         row = db.execute("SELECT * FROM conversations WHERE id=?", (conversation_id,)).fetchone()
-        if row is None or row["status"] != "OPEN" or row["channel_id"] != channel_id or row["guild_id"] != guild_id:
+        if row is None or row["status"] not in statuses or row["channel_id"] != channel_id or row["guild_id"] != guild_id:
             raise Unavailable()
         try:
             scope = self.spaces.scope(principal["principal"], conversation_id=conversation_id,
@@ -255,6 +255,26 @@ class ArmsRegistry:
                 raise Unavailable()
             db.execute("INSERT INTO events(kind,subject,at) VALUES ('pi_dispatched',?,?)", (turn_id, now()))
             return scope
+
+    def stop_conversation(self, conversation_id, discord_user, *, channel_id, guild_id=None):
+        """Authenticated stop; interrupted session context requires explicit recovery.
+
+        This closes capabilities before process abort. It cannot undo dispatched
+        provider work or a Discord send already in flight.
+        """
+        with self.connect() as db:
+            db.execute("BEGIN IMMEDIATE")
+            row, _ = self._authorized(db, conversation_id, discord_user, channel_id, guild_id,
+                                      statuses=("OPEN", "STOPPED"))
+            if row["status"] == "STOPPED":
+                return {"cancelled": 0, "interrupted": 0, "requires_recovery": True}
+            active = db.execute("SELECT COUNT(*) FROM turns WHERE conversation_id=? AND status='RUNNING'", (conversation_id,)).fetchone()[0]
+            queued = db.execute("UPDATE turns SET status='CANCELLED' WHERE conversation_id=? AND status='QUEUED'", (conversation_id,)).rowcount
+            db.execute("UPDATE turns SET status='INTERRUPTED' WHERE conversation_id=? AND status='RUNNING'", (conversation_id,))
+            if active:
+                db.execute("UPDATE conversations SET status='STOPPED' WHERE id=?", (conversation_id,))
+            db.execute("INSERT INTO events(kind,subject,at) VALUES ('conversation_stopped',?,?)", (conversation_id, now()))
+            return {"cancelled": queued, "interrupted": active, "requires_recovery": bool(active)}
 
     def quarantine_turn(self, turn_id):
         """Preserve uncertain context and prevent later queued turns resuming it."""

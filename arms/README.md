@@ -97,6 +97,14 @@ Synthetic worker tests cover reuse, concurrency, revocation during generation,
 idle retirement and answer/outbox persistence. Live synthesis and process-kill
 recovery validation remain open; these are not proven by native startup tests.
 
+`Supervisor.stop(conversation, discord_user, channel_id=..., guild_id=...)`
+authorizes the caller and destination, cancels queued turns, invalidates active
+turn capabilities, clears Pi's queue, aborts and closes the worker. A late answer
+cannot enter the delivery outbox. An interrupted conversation is marked STOPPED
+and cannot silently resume; explicit recovery/fork controls are still pending.
+Stopping an idle conversation cancels its queue without invalidating completed
+history. Stop cannot undo provider calls or remote sends already dispatched.
+
 Delivery claims persist SENDING before external dispatch and distinguish UNKNOWN
 from DELIVERED. Confirmations are idempotent; uncertain sends require explicit
 remote reconciliation and are never automatically resent. `validate_delivery`
@@ -109,7 +117,7 @@ quarantines interrupted conversations, and marks interrupted sends UNKNOWN.
 
 This is an offline control-plane foundation, **not a running Discord bot**.
 Gateway authentication/handlers, default active-DM and paper-thread routing,
-forks, user-facing stop/recovery, the background supervisor loop,
+forks, Discord stop handlers and recovery controls, the background supervisor loop,
 actual delivery and remote reconciliation, publication consent, scientific reviews,
 discussion search and reactions are not yet connected. Outbox insertion is
 tested, not external delivery. There is no HTTP listener, daemon or LaunchAgent.
