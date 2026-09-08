@@ -60,6 +60,35 @@ class Emoji:
     def __str__(self): return self.value
 
 
+@pytest.mark.parametrize("removed_type", [0, 1])
+def test_removal_preserves_other_reaction_type_and_failed_read(setup, monkeypatch, removed_type):
+    arms, spaces = setup
+    _, delivery = answered(arms)
+    arms.confirm_delivery(delivery["delivery_id"], "200")
+    class Access:
+        async def authorize(self, *args, **kwargs): pass
+    client = SimpleNamespace(registry=arms, access=Access(), user=SimpleNamespace(id=123), rest=object())
+    event = SimpleNamespace(user_id=2, channel_id=21, message_id=200, guild_id=10,
+        emoji=Emoji(), member=None, type=SimpleNamespace(value=removed_type))
+    remaining = {"2"}
+    async def users(rest, channel, message, emoji, reaction_type):
+        assert reaction_type == 1 - removed_type
+        if remaining is None: raise Unavailable()
+        return remaining
+    monkeypatch.setattr("research_arms.feedback_reconcile.users", users)
+    async def run():
+        nonlocal remaining
+        assert await observe(client, event, active=True)
+        assert not await observe(client, event, active=False)
+        remaining = None
+        with pytest.raises(Unavailable): await observe(client, event, active=False)
+        with arms.connect(readonly=True) as db:
+            assert db.execute("SELECT count(*) FROM events WHERE kind='feedback_signal'").fetchone()[0] == 1
+        remaining = set()
+        assert await observe(client, event, active=False)
+    asyncio.run(run())
+
+
 def test_raw_events_are_scoped_and_removal_survives_revocation(setup):
     arms, spaces = setup
     _, delivery = answered(arms)

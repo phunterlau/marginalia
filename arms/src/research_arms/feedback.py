@@ -1,5 +1,6 @@
 """Scoped reaction signals; no model dispatch or scientific review mutation."""
 from datetime import datetime, timezone
+import asyncio
 import hashlib
 import json
 
@@ -24,6 +25,21 @@ async def observe(client, payload, *, active):
         await client.access.authorize(actor, channel_id=channel, guild_id=guild, expected_space=space)
         scope = client.registry.spaces.scope(principal, conversation_id="feedback", writable_space=space)
     else:
+        reaction_type = getattr(getattr(payload, "type", None), "value", None)
+        if reaction_type in (0, 1):
+            # Normal and burst reactions can coexist for one actor and emoji.
+            # The wire event removes only one type, not necessarily the signal.
+            try:
+                await client.access.authorize(actor, channel_id=channel, guild_id=guild, expected_space=space)
+                client.registry.spaces.scope(principal, conversation_id="feedback", writable_space=space)
+            except (PermissionError, Unavailable):
+                pass  # Withdrawal remains permitted without further reads.
+            else:
+                from .feedback_reconcile import users
+                async with asyncio.timeout(30):
+                    remaining = await users(client.rest, channel, message, str(payload.emoji), 1 - reaction_type)
+                await client.access.authorize(actor, channel_id=channel, guild_id=guild, expected_space=space)
+                if actor in remaining: return False
         # This token cannot add/read anything; it identifies only an existing
         # actor's withdrawal after permissions may have been revoked.
         scope = ContextScope(principal, "withdrawal-only", "feedback", space, (space,), -1)
