@@ -4,7 +4,7 @@ import hashlib
 import json
 from urllib.parse import quote
 
-from .feedback import EMOJIS, target
+from .feedback import EMOJIS, target, clear
 from .registry import Unavailable, encode, now, snowflake
 
 
@@ -77,6 +77,23 @@ async def reconcile(client, *, actor, guild, channel, message):
             principal = client.registry._principal(db, actor)["principal"]
             registered = {row["discord_user"]: row["principal"] for row in db.execute("SELECT * FROM principals")}
         scope = client.registry.spaces.scope(principal, conversation_id="feedback-reconcile", writable_space=space)
+        response = await client.rest.get(f"channels/{channel}/messages/{message}")
+        if len(response.content) > 262144: raise Unavailable()
+        source = response.json()
+        if not isinstance(source, dict): raise Unavailable()
+        if response.status_code == 404 and source.get("code") == 10008:
+            await client.access.authorize(actor, channel_id=channel, guild_id=guild, expected_space=space)
+            client.registry.spaces.validate(scope)
+            removed = clear(client.registry, guild=guild, channel=channel, message=message)
+            client.registry.discussion_message_deleted(guild_id=guild, channel_id=channel, message_id=message)
+            with client.registry.connect() as db:
+                rows = db.execute("SELECT id FROM paper_threads WHERE space_id=? AND guild_id IS ? AND parent_id=? AND starter_id=? AND state='COMPLETE'", (space, guild, channel, message)).fetchall()
+                for row in rows:
+                    db.execute("UPDATE paper_threads SET state='NEEDS_ATTENTION' WHERE id=?", (row[0],))
+                    db.execute("INSERT INTO events(kind,subject,at) VALUES ('paper_starter_missing',?,?)", (row[0], now()))
+            return {"status": "SOURCE_DELETED", "changes": removed}
+        if response.status_code != 200 or source.get("id") != message or source.get("channel_id") != channel or source.get("author", {}).get("id") != str(client.user.id) or source.get("webhook_id"):
+            raise Unavailable()
         observed = {}
         for emoji in EMOJIS:
             normal = await users(client.rest, channel, message, emoji, 0)

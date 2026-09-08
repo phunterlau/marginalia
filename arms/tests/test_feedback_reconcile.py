@@ -15,8 +15,11 @@ class Rest:
     def __init__(self, fail=False): self.fail, self.calls = fail, []
     async def get(self, route):
         self.calls.append(route)
+        if "/reactions/" not in route:
+            data = {"id": route.split("/")[-1], "channel_id": route.split("/")[1], "author": {"id": "123"}}
+            return SimpleNamespace(status_code=200, content=json.dumps(data).encode(), json=lambda: data)
         data = [{"id": "2", "bot": False}] if "🔥" in unquote(route) else []
-        return SimpleNamespace(status_code=500 if self.fail and len(self.calls) == 8 else 200,
+        return SimpleNamespace(status_code=500 if self.fail and len(self.calls) == 9 else 200,
             content=json.dumps(data).encode(), json=lambda: data)
 
 
@@ -94,3 +97,30 @@ def test_scan_visits_answers_and_paper_starters_once_per_pass(setup, monkeypatch
     asyncio.run(run())
     assert [r["message"] for r in seen] == ["200", "300", "200", "300"]
     assert all(r["actor"] == "1" for r in seen)
+
+
+@pytest.mark.parametrize("status,code", [(404,10008), (404,10003), (403,50001), (500,0)])
+def test_missing_paper_starter_is_quarantined_only_on_verified_deletion(setup, status, code):
+    arms, spaces = setup
+    _, delivery = answered(arms)
+    arms.confirm_delivery(delivery["delivery_id"], "200")
+    with arms.connect() as db:
+        conv = db.execute("SELECT id FROM conversations").fetchone()[0]
+        db.execute("INSERT INTO paper_threads VALUES ('paper_test','project','10','20','doc_test','v1','COMPLETE','300','300',?,'2026-09-07')", (conv,))
+    scope = spaces.scope("alice", conversation_id="feedback", writable_space="project")
+    record(arms, scope, guild="10", channel="20", message="300", emoji="🔥", active=True)
+    class Missing:
+        async def get(self, route):
+            assert "/reactions/" not in route
+            return SimpleNamespace(status_code=status, content=b"{}", json=lambda: {"code": code})
+    client = SimpleNamespace(registry=arms, access=Access(), rest=Missing(), user=SimpleNamespace(id=123))
+    args = {"actor": "1", "guild": "10", "channel": "20", "message": "300"}
+    deleted = status == 404 and code == 10008
+    if deleted:
+        assert asyncio.run(reconcile(client, **args))["status"] == "SOURCE_DELETED"
+        assert not view(arms, scope, shared=True)["items"]
+    else:
+        with pytest.raises(PermissionError): asyncio.run(reconcile(client, **args))
+        assert view(arms, scope, shared=True)["items"]
+    with arms.connect(readonly=True) as db:
+        assert db.execute("SELECT state FROM paper_threads").fetchone()[0] == ("NEEDS_ATTENTION" if deleted else "COMPLETE")

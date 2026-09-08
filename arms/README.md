@@ -79,9 +79,12 @@ occurs within a pass. A restart begins a fresh pass over persisted targets; newl
 created targets are handled by raw events and subsequent reconnects. If the source
 author no longer has access, a currently authorized participant can use explicit
 `refresh_message` recovery. Verified offline answer deletion also withdraws its
-feedback through discussion reconciliation. Offline deletion of paper starters
-still needs resource recovery; a failed reaction endpoint alone is not treated
-as proof of deletion.
+feedback through discussion reconciliation. Reaction reconciliation first verifies
+the exact bot-authored message. HTTP 404 with Discord code 10008, followed by fresh
+access checks, withdraws signals and marks a missing paper starter
+`NEEDS_ATTENTION`; it never automatically reposts a starter or creates a new thread.
+Denied access, missing channels and server errors do not establish deletion.
+Replacing missing remote resources still requires explicit recovery work.
 
 `/deep-dive message_id:<ID>` previews the exact context for an active 🔬 request.
 Repeat with `confirm:true digest:<preview digest>` to approve one Pi turn in a
@@ -514,14 +517,16 @@ writer and local recovery quarantines RUNNING projection jobs. Original question
 channels are preserved for paper-starter replies; unknown legacy locations are
 not invented. Migration does not backfill historical deliveries. Brain schema 003
 must be migrated explicitly before projection. Historical
-backfill/retry controls remain pending. Pi can use `research_discussed` with an
+backfill remains pending; failed latest projections can be explicitly retried
+with the trusted local discussion-recovery command described above. Pi can use `research_discussed` with an
 explicit permitted space, a query of at most 2000 characters, and at most three
 results. The same turn-bound credentials, revocation checks and output limits
 apply. Results label discussion as non-scientific memory and identify question
 authors separately from assistant answers. Scientific recall is unchanged.
 
 This is a partial pilot, **not a validated live deployment**. Complete Discord
-recovery controls, complete discussion reconciliation and reactions still need integration.
+recovery and multi-user privacy gates remain open. Discussion and reaction
+reconciliation are integrated and mock-tested, not live-validated.
 
 Authenticated raw single/bulk Discord deletion events match only already tracked
 message IDs and their exact guild/channel. They append idempotent tombstones to
@@ -530,8 +535,9 @@ side removes the exchange from discussion search after projection, including whe
 the question was deleted before answer confirmation. Deletion retractions remain
 effective after membership changes because they only reduce search visibility
 in the original space. Original turns, revision history and Pi context are not
-erased, and nothing is replayed to Pi. Offline deletion reconciliation remains
-pending; deletion is not a promise of provider erasure.
+erased, and nothing is replayed to Pi. Reconnect reconciliation checks known
+message identities for offline deletion; legacy unknown question transports are
+skipped. Deletion is not a promise of provider erasure.
 
 Raw tracked-message edit events record an unavailable edit, then fetch
 only the exact tracked message after fresh access checks. Author/channel identity
