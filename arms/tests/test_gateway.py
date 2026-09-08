@@ -30,7 +30,7 @@ def test_native_command_registration_is_offline_and_minimal(setup):
     async def run():
         client = ResearchGateway(arms, "/unused/pi")
         assert {cmd.name for cmd in client.tree.get_commands()} == {"new", "resume", "session", "space", "ask", "stop", "paper"}
-        assert {cmd.name for cmd in client.tree.get_command("paper").commands} == {"status", "brief", "cards", "evidence"}
+        assert {cmd.name for cmd in client.tree.get_command("paper").commands} == {"status", "brief", "cards", "evidence", "job", "approve"}
         assert client.intents.guilds and not client.intents.message_content and not client.intents.members
         assert client.supervisor is None and client.pump is None
         await client.close()
@@ -116,4 +116,27 @@ def test_casual_channel_messages_are_not_retained(setup):
         with arms.connect(readonly=True) as db:
             assert db.execute("SELECT COUNT(*) FROM turns").fetchone()[0] == 0
         await client.close()
+    asyncio.run(run())
+
+
+def test_paper_approval_requires_confirmation_and_passes_exact_scope(setup):
+    arms, _ = setup
+    calls = []
+    class Service:
+        def __init__(self, registry, actor, space):
+            assert registry is arms and actor == "1" and space == "alice"
+        def preview(self, job): return {"job_id": job, "status": "WAITING_APPROVAL"}
+        def approve(self, job, digest, *, live):
+            calls.append((job, digest, live))
+            return {"job_id": job, "status": "QUEUED"}
+    async def run():
+        client = ResearchGateway(arms, "/unused/pi", absorption_factory=Service)
+        destination = {"space_id": "alice"}
+        args = ("paper_approve", "1", "30", None, "100", destination)
+        try:
+            with pytest.raises(ValueError): await client.handle(*args, job_id="job_x", plan_digest="digest", confirm=False)
+            assert calls == []
+            result = await client.handle(*args, job_id="job_x", plan_digest="digest", confirm=True)
+            assert result["status"] == "QUEUED" and calls == [("job_x", "digest", True)]
+        finally: await client.close()
     asyncio.run(run())

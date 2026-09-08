@@ -194,8 +194,10 @@ now accept exact document/block IDs in the destination space without starting Pi
 Brief/status report source metadata, not a generated scientific summary or proof
 that an absorption job completed. Card previews preserve review labels; evidence
 includes its locator and explicit text omission information. Larger command
-results are attached as JSON. `/paper add`, job approval and starter threads are
-not yet connected.
+results are attached as JSON. `/paper job` and `/paper approve` inspect and approve
+existing scoped jobs for owners/maintainers, with an exact digest and explicit
+confirmation. The command only queues work; it never calls a provider itself.
+`/paper add`, absorption-worker integration and starter threads remain pending.
 
 `ScopedAbsorption` is the maintainer-only service foundation for those mutations.
 It binds an immutable authorization context into the paid-plan digest and checks

@@ -78,6 +78,12 @@ login, with built-in tools and implicit resources disabled.
 7. `/paper status`, `/paper brief`, `/paper cards` and `/paper evidence` read
    exact document/block IDs from the current space. They do not spend tokens.
    Brief is currently a metadata overview, not a generated paper summary.
+8. Owners/maintainers can inspect an existing scoped absorption plan with
+   `/paper job job_id:...`. `/paper approve job_id:... plan_digest:... confirm:true`
+   explicitly approves that exact plan for later paid execution. It does not
+   launch providers from the command handler. The Gateway absorption worker and
+   `/paper add` submission orchestration are not connected yet; unscoped legacy
+   plans cannot be approved through this command.
 
 Do not submit sensitive private information in shared command arguments. Shared
 means the configured channel audience, not just the person invoking a command.

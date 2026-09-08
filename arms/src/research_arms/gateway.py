@@ -15,10 +15,12 @@ from .worker import Supervisor
 from .discord_access import DiscordAccess
 from .discord_io import DiscordSender, assemble_question, download_chunks
 from .papers import read_paper
+from .absorption import ScopedAbsorption
 
 
 class ResearchGateway(discord.Client):
-    def __init__(self, registry, pi_executable, *, sync_commands=False, rest_client=None):
+    def __init__(self, registry, pi_executable, *, sync_commands=False, rest_client=None,
+                 absorption_factory=ScopedAbsorption):
         intents = discord.Intents.none()
         intents.guilds = True
         intents.guild_messages = True
@@ -27,6 +29,7 @@ class ResearchGateway(discord.Client):
         super().__init__(intents=intents, allowed_mentions=discord.AllowedMentions.none())
         self.registry, self.pi_executable = registry, pi_executable
         self.sync_commands = sync_commands
+        self.absorption_factory = absorption_factory
         self.rest = rest_client
         self.access = self.supervisor = self.pump = None
         self.running_turns = set()
@@ -42,6 +45,13 @@ class ResearchGateway(discord.Client):
             paper.command(name=operation, description="Read " + operation + " using an exact document or evidence ID")(callback)
         for operation in ("status", "brief", "cards", "evidence"):
             paper_command(operation)
+        @paper.command(name="job", description="Inspect an absorption job and its exact paid-work plan digest")
+        async def paper_job(interaction: discord.Interaction, job_id: str):
+            await self.execute(interaction, "paper_job", job_id=job_id)
+
+        @paper.command(name="approve", description="Authorize the exact absorption plan for later paid execution")
+        async def paper_approve(interaction: discord.Interaction, job_id: str, plan_digest: str, confirm: bool = False):
+            await self.execute(interaction, "paper_approve", job_id=job_id, plan_digest=plan_digest, confirm=confirm)
         self.tree.add_command(paper)
         @self.tree.command(name="new", description="Create and select a named research conversation")
         async def new(interaction: discord.Interaction, name: str):
@@ -155,13 +165,24 @@ class ResearchGateway(discord.Client):
                     allowed_mentions=discord.AllowedMentions.none())
                 return
         except ValueError:
-            text = "Invalid or oversized request. Use an exact conversation ID and at most 20,000 characters of UTF-8 text."
+            text = ("Approval status not confirmed. Inspect /paper job and use its exact plan digest with confirm:true."
+                    if command == "paper_approve" else
+                    "Invalid or oversized request. Use an exact conversation ID and at most 20,000 characters of UTF-8 text.")
         except Exception:
             text = "Research operation unavailable. Check your selected session, access, or backend recovery status."
         await interaction.edit_original_response(content=text, allowed_mentions=discord.AllowedMentions.none())
 
     async def handle(self, command, actor, channel, guild, message_id, destination, **options):
         """Internal authenticated handler; never expose caller-supplied destination data."""
+        if command in {"paper_job", "paper_approve"}:
+            def operate():
+                service = self.absorption_factory(self.registry, actor, destination["space_id"])
+                if command == "paper_job":
+                    return service.preview(options["job_id"])
+                if options.get("confirm") is not True:
+                    raise ValueError("Explicit paid-work confirmation required")
+                return service.approve(options["job_id"], options["plan_digest"], live=True)
+            return await asyncio.to_thread(operate)
         if command.startswith("paper_"):
             return await asyncio.to_thread(read_paper, self.registry, actor, destination,
                                            command.removeprefix("paper_"), options["identifier"])
