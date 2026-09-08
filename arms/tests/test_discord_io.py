@@ -45,6 +45,33 @@ def test_question_utf8_and_actual_combined_bounds():
     asyncio.run(run())
 
 
+def test_reconciliation_rechecks_remote_access_before_adoption(setup):
+    arms, _ = setup
+    ident = turn(arms, shared(arms))
+    arms.claim()
+    arms.save_answer(ident, "answer", "entry")
+    delivery = arms.begin_delivery(ident)
+    arms.delivery_unknown(delivery["delivery_id"])
+    checks = []
+    class Client:
+        async def get(self, route):
+            class Response:
+                status_code = 200
+                def json(self):
+                    return {"id": "333", "channel_id": "21", "author": {"id": "123"}, "nonce": delivery["nonce"]}
+            return Response()
+    async def authorize(*args):
+        checks.append(args)
+        return len(checks) == 1
+    with pytest.raises(Unavailable):
+        asyncio.run(DiscordSender(arms, Client(), "123", authorize).reconcile(delivery["delivery_id"], "333"))
+    assert len(checks) == 2
+    with arms.connect(readonly=True) as db:
+        assert db.execute("SELECT state FROM outbox").fetchone()[0] == "UNKNOWN"
+        assert db.execute("SELECT count(*) FROM events WHERE kind='delivery_reconciled'").fetchone()[0] == 0
+        assert db.execute("SELECT count(*) FROM discussion_jobs").fetchone()[0] == 0
+
+
 @pytest.mark.parametrize("url", ["http://cdn.discordapp.com/attachments/1/2/q.md",
     "https://localhost/attachments/1/2/q.md", "https://cdn.discordapp.com.evil/attachments/1/2/q.md",
     "https://x@cdn.discordapp.com/attachments/1/2/q.md", "https://cdn.discordapp.com/other"])

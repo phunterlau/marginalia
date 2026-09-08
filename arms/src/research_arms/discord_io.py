@@ -179,5 +179,12 @@ class DiscordSender:
         if (message.get("id") != message_id or message.get("channel_id") != destination["channel_id"]
                 or message.get("author", {}).get("id") != self.bot_user_id or str(message.get("nonce")) != nonce):
             raise Unavailable()
+        # Remote permission checks can become stale while the GET is in flight.
+        # Unlike recording a just-dispatched send, operator reconciliation must
+        # still be authorized when it adopts the remote outcome.
+        if not await self.authorize_destination(destination["guild_id"], destination["channel_id"]):
+            raise Unavailable()
+        with self.registry.connect(readonly=True) as db:
+            self.registry._turn_scope(db, outbox["turn_id"])
         self.registry.confirm_delivery(delivery_id, message_id, reconciled=True)
         return message_id
