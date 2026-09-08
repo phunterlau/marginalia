@@ -31,6 +31,7 @@ from .research_commands import compare as research_compare
 from .research_commands import frontier as research_frontier
 from .saves import save_excerpt
 from .feedback import observe as observe_feedback, view as feedback_view, clear as clear_feedback
+from .feedback_reconcile import reconcile as reconcile_feedback
 from .discussion_edits import observe as observe_discussion_edit
 from .forks import fork_conversation
 from .registry import snowflake
@@ -74,8 +75,8 @@ class ResearchGateway(discord.Client):
 
     def _commands(self):
         @self.tree.command(name="interests", description="Show project interest or your personal reaction signals; no model work")
-        async def interests(interaction: discord.Interaction, spaces: str = ""):
-            await self.execute(interaction, "interests", spaces=spaces)
+        async def interests(interaction: discord.Interaction, spaces: str = "", refresh_message: str | None = None):
+            await self.execute(interaction, "interests", spaces=spaces, refresh_message=refresh_message)
         @self.tree.command(name="frontier", description="Inspect a Brain research thread, including unreviewed ideas and proposed tests")
         async def frontier(interaction: discord.Interaction, thread_id: str, after_id: str = ""):
             await self.execute(interaction, "frontier", thread_id=thread_id, after_id=after_id)
@@ -363,6 +364,9 @@ class ResearchGateway(discord.Client):
             with self.registry.connect(readonly=True) as db:
                 principal = self.registry._principal(db, actor)["principal"]
             scope = self.registry.spaces.scope(principal, conversation_id="feedback-view", writable_space=destination["space_id"], read_spaces=tuple(attached.split()))
+            if options.get("refresh_message") is not None:
+                async with self.feedback_lock:
+                    await reconcile_feedback(self, actor=actor, guild=guild, channel=channel, message=options["refresh_message"])
             return feedback_view(self.registry, scope, shared=guild is not None)
         if command == "frontier":
             return await research_frontier(self.registry, actor, destination, options["thread_id"], after_id=options.get("after_id", ""))

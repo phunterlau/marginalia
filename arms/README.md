@@ -62,9 +62,18 @@ Raw remove-all and remove-one-emoji events atomically withdraw matching known
 signals; message deletion (including bulk deletion) also clears its signals.
 These withdrawal-only paths do not depend on the former actor retaining access.
 They share the reaction-handler lock so an in-flight add cannot overtake a clear.
-Reaction-list/reconnect reconciliation and an explicit
-approved deep-dive Run action remain pending. Current event wiring is mock-tested,
-not live Discord validated. Missed events can leave signals stale until reconciliation.
+`/interests refresh_message:<message ID>` explicitly reconciles one known answer
+or paper starter in the current channel. It reads complete normal and burst user
+lists for all four emojis, with at most ten 100-user pages per list and a 60-second
+total bound. Malformed, repeated, excessive, or failed pages and failed access
+checks leave the ledger unchanged. Registered, currently authorized users alone
+can contribute; normal/burst membership is combined. Updates are atomic and
+serialized against raw events. Existing active signals keep their activation time;
+newly discovered signals use reconciliation time because the original reaction
+time is unavailable. No reaction user names or unrelated history are retained.
+Automatic reconnect scheduling and an explicit approved deep-dive Run action
+remain pending. Current event wiring is mock-tested, not live Discord validated.
+Missed events can leave signals stale until reconciliation.
 
 `/frontier thread_id:<Brain research-thread obj_ID>` presents current goals,
 uncertainties, pending experiments and linked research records. This is an
