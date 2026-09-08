@@ -27,6 +27,7 @@ from .publication_commands import handle as handle_publication
 from .discussion_worker import DiscussionWorker
 from .discussion_reconcile import DiscussionReconciler
 from .research_commands import recall as research_recall
+from .research_commands import compare as research_compare
 from .discussion_edits import observe as observe_discussion_edit
 from .forks import fork_conversation
 from .registry import snowflake
@@ -66,6 +67,9 @@ class ResearchGateway(discord.Client):
         self._commands()
 
     def _commands(self):
+        @self.tree.command(name="compare", description="Compare reliable evidence for 2–4 exact document@vN paper revisions")
+        async def compare(interaction: discord.Interaction, papers: str, question: str):
+            await self.execute(interaction, "compare", papers=papers, question=question)
         @self.tree.command(name="recall", description="Find source evidence and accepted research records in this space")
         async def recall(interaction: discord.Interaction, question: str):
             await self.execute(interaction, "recall", question=question)
@@ -278,7 +282,7 @@ class ResearchGateway(discord.Client):
                     str(interaction.id), destination, **options)
             text = json.dumps(result, ensure_ascii=False)
             if len(text) > 1700:
-                if len(text.encode()) > (110000 if command.startswith("publish_") else 66000 if command in {"discussed", "recall"} else 16000): raise ValueError("Result exceeds bound")
+                if len(text.encode()) > (110000 if command.startswith("publish_") else 66000 if command in {"discussed", "recall", "compare"} else 16000): raise ValueError("Result exceeds bound")
                 await interaction.edit_original_response(content="Research result attached; inspect provenance and review labels.",
                     attachments=[discord.File(io.BytesIO(text.encode()), filename="research-result.json")],
                     allowed_mentions=discord.AllowedMentions.none())
@@ -290,6 +294,8 @@ class ResearchGateway(discord.Client):
                     if command.startswith("card_") else
                     "Publication not confirmed. Inspect /publish show, use its exact digest and confirm:true. Prepare/consent/cancel belong in DMs; approve/run belong in the destination channel. Uncertain runs require inspection before retry:true."
                     if command.startswith("publish_") else
+                    "Comparison unavailable or oversized. Use 2–4 distinct doc_ID@vN selections in this space and a question of at most 2,000 characters. Narrow the query if necessary."
+                    if command == "compare" else
                     "Invalid or oversized request. Use an exact conversation ID and at most 20,000 characters of UTF-8 text.")
         except Exception:
             text = "Research operation unavailable. Check your selected session, access, or backend recovery status."
@@ -297,6 +303,8 @@ class ResearchGateway(discord.Client):
 
     async def handle(self, command, actor, channel, guild, message_id, destination, **options):
         """Internal authenticated handler; never expose caller-supplied destination data."""
+        if command == "compare":
+            return await research_compare(self.registry, actor, destination, options["papers"], options["question"])
         if command == "recall":
             return await research_recall(self.registry, actor, destination, options["question"])
         if command == "discussed":

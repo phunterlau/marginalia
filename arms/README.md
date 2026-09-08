@@ -52,6 +52,17 @@ contribute semantic results; otherwise retrieval is lexical. Empty results do no
 establish that no relevant method exists. Review status is read afresh, and
 acceptance never changes agent origin. Transport metadata paths are omitted.
 
+`/compare papers:"doc_ID@v1 doc_OTHER@v2" question:"Which constraints differ?"`
+returns a read-only comparison dossier for 2–4 distinct exact revision selections.
+The same paper at two revisions is allowed. Each group records its space,
+document/version identity and revision, with up to three reliable evidence hits
+and their constraints. All pins must resolve in the destination before retrieval;
+there is no latest-revision or cross-space fallback. Empty groups explicitly
+indicate a retrieval/corpus mismatch. Queries are limited to 2,000 characters and
+the complete response to 66,000 bytes, without silent evidence truncation.
+This is an evidence comparison, not a generated scientific judgment or a saved
+Pi conversation. No model call, review decision, or Brain mutation occurs.
+
 ## Interrupted worker recovery
 
 Failed discussion-index writes have a separate trusted-local recovery command:

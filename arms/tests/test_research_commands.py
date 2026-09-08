@@ -4,6 +4,7 @@ import json
 import pytest
 
 from research_arms.research_commands import recall
+from research_arms.research_commands import compare
 from test_registry import setup
 
 
@@ -49,3 +50,46 @@ def test_no_live_query_embedding_and_no_local_paths(setup, monkeypatch):
     result = asyncio.run(recall(arms, "1", {"space_id": "project"}, "Geometry"))
     assert calls == [False]
     assert "/private/" not in json.dumps(result)
+
+
+def paper(brain, revision, text):
+    import io
+    import tarfile
+    from research_brain.ingest import ResolvedSource
+    stream = io.BytesIO()
+    data = ("\\documentclass{article}\n\\begin{document}\n\\section{Method}\n" + text + "\n\\end{document}").encode()
+    with tarfile.open(fileobj=stream, mode="w:gz") as archive:
+        member = tarfile.TarInfo("main.tex")
+        member.size = len(data)
+        archive.addfile(member, io.BytesIO(data))
+    return brain.ingestor._ingest_resolved(ResolvedSource(data=stream.getvalue(),
+        uri="https://arxiv.org/src/2506.24056" + revision, name="synthetic.tar.gz", content_type="application/gzip",
+        kind="source_archive", canonical_document_uri="https://arxiv.org/abs/2506.24056", version_label=revision,
+        external_ids={"arxiv": "2506.24056"}))
+
+
+def test_compare_pins_coexisting_revisions_and_does_not_mutate(setup):
+    arms, spaces = setup
+    brain = spaces.open("alice")
+    first = paper(brain, "v1", "Geometry OLD_EVIDENCE")
+    paper(brain, "v2", "Geometry NEW_EVIDENCE")
+    with brain.store.connect() as db: before = list(db.iterdump())
+    pins = first.document_id + "@v1 " + first.document_id + "@v2"
+    result = asyncio.run(compare(arms, "1", {"space_id": "alice"}, pins, "Geometry"))
+    a, b = result["papers"]
+    assert a["revision"] == "v1" and b["revision"] == "v2"
+    assert "OLD_EVIDENCE" in json.dumps(a) and "NEW_EVIDENCE" not in json.dumps(a)
+    assert "NEW_EVIDENCE" in json.dumps(b) and "OLD_EVIDENCE" not in json.dumps(b)
+    assert a["document_version_id"] != b["document_version_id"]
+    assert str(brain.root) not in json.dumps(result)
+    with brain.store.connect() as db: assert list(db.iterdump()) == before
+    with pytest.raises(ValueError, match="unavailable"):
+        asyncio.run(compare(arms, "1", {"space_id": "project"}, pins, "Geometry"))
+    with pytest.raises(ValueError, match="unavailable"):
+        asyncio.run(compare(arms, "1", {"space_id": "alice"}, pins.replace("@v2", "@v3"), "Geometry"))
+
+
+@pytest.mark.parametrize("pins", ["doc_x", "doc_x@latest doc_y@v2", "doc_x@v1 doc_x@v1", "../private@v1 doc_x@v2"])
+def test_compare_requires_explicit_distinct_pins(setup, pins):
+    arms, _ = setup
+    with pytest.raises(ValueError): asyncio.run(compare(arms, "1", {"space_id": "alice"}, pins, "Geometry"))
