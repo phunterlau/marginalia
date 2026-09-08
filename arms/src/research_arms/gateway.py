@@ -68,8 +68,8 @@ class ResearchGateway(discord.Client):
 
     def _commands(self):
         @self.tree.command(name="brainstorm", description="Start a separate blind-first research conversation; follow up to use memory")
-        async def brainstorm(interaction: discord.Interaction, question: str):
-            await self.execute(interaction, "brainstorm", question=question)
+        async def brainstorm(interaction: discord.Interaction, question: str, paper: str | None = None):
+            await self.execute(interaction, "brainstorm", question=question, paper=paper)
         @self.tree.command(name="compare", description="Compare reliable evidence for 2–4 exact document@vN paper revisions")
         async def compare(interaction: discord.Interaction, papers: str, question: str):
             await self.execute(interaction, "compare", papers=papers, question=question)
@@ -312,7 +312,7 @@ class ResearchGateway(discord.Client):
                 raise ValueError("Brainstorm question must contain 1..20000 characters")
             conversation = self.registry.new_conversation(actor, channel_id=channel, guild_id=guild,
                 parent_channel_id=destination.get("parent_channel_id"), name="Research brainstorm",
-                request_id=message_id, blind_first=True)
+                request_id=message_id, blind_first=True, paper_pin=options.get("paper"))
             turn = self.registry.enqueue(conversation, actor, channel_id=channel, guild_id=guild,
                 message_id=message_id, prompt=question, question_is_message=False)
             self.registry.select_conversation(conversation, actor, channel_id=channel, guild_id=guild)

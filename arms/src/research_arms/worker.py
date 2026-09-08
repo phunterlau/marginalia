@@ -109,6 +109,9 @@ class Supervisor:
                     paper = db.execute("SELECT space_id,document_id,revision FROM paper_threads WHERE thread_id=? AND guild_id IS ? AND state='COMPLETE'", (conv["channel_id"], conv["guild_id"])).fetchone()
                     if paper:
                         payload["paper_starting_point"] = dict(paper)
+                    pinned = db.execute("SELECT subject FROM events WHERE kind='brainstorm_paper' AND json_extract(subject,'$.conversation_id')=?", (conv["id"],)).fetchone()
+                    if pinned:
+                        payload["paper_starting_point"] = {k: v for k, v in json.loads(pinned[0]).items() if k not in {"conversation_id", "pin"}}
                     if anchor:
                         payload["quoted_reply_anchor"] = anchor[0][:4000]
                         payload["anchor_omitted_characters"] = max(0, len(anchor[0]) - 4000)

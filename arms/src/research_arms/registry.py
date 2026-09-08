@@ -155,8 +155,10 @@ class ArmsRegistry:
         return row
 
     def new_conversation(self, discord_user, *, channel_id, guild_id=None,
-                         parent_channel_id=None, name="Research", read_spaces=(), request_id=None, blind_first=False):
+                         parent_channel_id=None, name="Research", read_spaces=(), request_id=None, blind_first=False, paper_pin=None):
         if type(blind_first) is not bool: raise ValueError("Invalid brainstorm mode")
+        if paper_pin is not None and (not blind_first or not isinstance(paper_pin, str) or not re.fullmatch(r"doc_[A-Za-z0-9_-]{1,90}@v[1-9][0-9]{0,5}", paper_pin)):
+            raise ValueError("Brainstorm paper requires an exact doc_ID@vN pin")
         snowflake(channel_id)
         if not isinstance(name, str) or not 1 <= len(name.strip()) <= 100:
             raise ValueError("Conversation name must be 1..100 characters")
@@ -186,7 +188,9 @@ class ArmsRegistry:
                     desired = self.spaces.scope(principal["principal"], conversation_id=conversation,
                         writable_space=space, read_spaces=tuple(read_spaces))
                     was_blind = db.execute("SELECT 1 FROM events WHERE kind='brainstorm_created' AND subject=?", (conversation,)).fetchone() is not None
-                    if row["name"] != name.strip() or current != desired or was_blind != blind_first:
+                    old_pin = db.execute("SELECT subject FROM events WHERE kind='brainstorm_paper' AND json_extract(subject,'$.conversation_id')=?", (conversation,)).fetchone()
+                    old_pin = json.loads(old_pin[0])["pin"] if old_pin else None
+                    if row["name"] != name.strip() or current != desired or was_blind != blind_first or old_pin != paper_pin:
                         raise ValueError("Duplicate conversation request changed")
                     return conversation
             else:
@@ -196,12 +200,22 @@ class ArmsRegistry:
                                           writable_space=space, read_spaces=tuple(read_spaces))
             except (PermissionError, LookupError, ValueError):
                 raise Unavailable() from None
+            paper = None
+            if paper_pin is not None:
+                document_id, revision = paper_pin.split("@")
+                document = self.spaces.read(scope, space, "get_document", document_id)["result"]
+                versions = [v for v in document["versions"] if v["version_label"] == revision] if document else []
+                if len(versions) != 1: raise Unavailable()
+                paper = {"conversation_id": conversation, "pin": paper_pin, "space_id": space,
+                    "document_id": document_id, "revision": revision, "document_version_id": versions[0]["id"]}
             db.execute("INSERT INTO conversations VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)",
                        (conversation, principal["principal"], guild_id, channel_id, space, scope.audience,
                         encode(scope.read_spaces), scope.policy_version, visibility(scope), str(uuid.uuid4()),
                         name.strip(), "OPEN", now()))
             if blind_first:
                 db.execute("INSERT INTO events(kind,subject,at) VALUES ('brainstorm_created',?,?)", (conversation, now()))
+            if paper:
+                db.execute("INSERT INTO events(kind,subject,at) VALUES ('brainstorm_paper',?,?)", (encode(paper), now()))
             return conversation
 
     def _authorized(self, db, conversation_id, discord_user, channel_id, guild_id, *, statuses=("OPEN",)):

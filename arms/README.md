@@ -50,8 +50,13 @@ No extra second model turn is automatically scheduled. Model output remains
 unreviewed discussion, not accepted scientific memory. A new command request
 creates a fresh session; duplicate interaction delivery does not create another.
 This workflow has mocked Pi lifecycle/tool-boundary tests, not live usefulness
-validation. Explicit optional paper selection and structured Save to Brain
-controls remain pending (paper-thread starting-point metadata still applies).
+validation. Optional `paper:doc_ID@vN` pins one exact source revision in the
+destination space; missing revisions or private IDs used in shared channels fail
+without creating a conversation. The pin is immutable for a retried request and
+travels with both stages as source identity only, not paper passages or cards.
+This explicit selection takes precedence over paper-thread starting-point metadata.
+It is a starting point, not a restriction preventing later authorized cross-paper
+retrieval. Structured Save to Brain controls remain pending.
 
 `/recall question` searches only the current destination's Brain space, without
 starting or resuming Pi. It returns up to three source/accepted-record hits with
