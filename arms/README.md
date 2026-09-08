@@ -38,6 +38,26 @@ Opening an old registry does not perform migrations automatically.
 
 ## Interrupted worker recovery
 
+Failed discussion-index writes have a separate trusted-local recovery command:
+
+```sh
+python -m research_arms.discussion_recovery --root /absolute/arms-data \
+  --spaces-root /absolute/space-registry --space project
+python -m research_arms.discussion_recovery --root /absolute/arms-data \
+  --spaces-root /absolute/space-registry --space project --retry 'TURN_ID:REVISION'
+```
+
+Inspection returns at most 20 failed-job summaries (`--limit` accepts 1–100),
+without message content. Retry queues only an exact latest `NEEDS_ATTENTION`
+projection in the named space and records an operator audit event. It does not
+call Pi, spend tokens, resend Discord messages, or modify the original turn.
+The normal Gateway worker performs the index write with fresh authorization;
+revoked scopes cannot reintroduce content. Privacy retractions may still remove
+search visibility in their original space. Brain's immutable revision identity
+makes retry safe when its write succeeded but the Arms completion checkpoint was
+lost. RUNNING jobs require the stopped-worker recovery below first. This command
+does not reconcile edits missed while offline or backfill old deliveries.
+
 Stop the Gateway and verify its orphaned Pi/worker processes have also stopped.
 Then run this trusted local command (never exposed to Discord or Pi):
 
