@@ -1,8 +1,9 @@
 # Foreground Discord pilot
 
 This is a partial pilot: conversation, source-submission and approved-job execution are implemented;
-automatic shared starter-thread creation is available, while complete recovery
-controls and reactions remain pending. Publication commands are mock-tested, not
+automatic shared starter-thread creation, scoped reactions and explicit recovery
+controls are available. Missing remote paper resources still require inspection.
+Publication commands are mock-tested, not
 live-validated. Do not treat it as the completed team-sharing release.
 
 ## After an interrupted backend process
@@ -14,8 +15,9 @@ environment. The command refuses an active supervisor lock, makes a private
 verified backup, and quarantines interrupted work without replaying anything.
 It does not recover or rerun paid Brain jobs. Inspect those ledgers separately.
 Restart the Gateway only after reviewing the recovery report. Existing remote
-paper threads may then be reconciled with `/paper reconcile`; absent resources
-and partial forks still require inspection. Never infer that a call failed merely
+paper threads may then be reconciled with `/paper reconcile`. `/fork-recover`
+can adopt one verified partial fork; absent or ambiguous resources still require
+inspection. Never infer that a call failed merely
 because the process or connection disappeared.
 
 ## Create a dedicated application
@@ -25,11 +27,12 @@ Use a dedicated bot because command synchronization replaces its global command
 set. Keep the bot token only in the backend's `DISCORD_BOT_TOKEN` environment
 variable. Never paste it into a conversation, commit, command argument or Pi tool.
 
-The pilot uses Guilds, Guild Messages and Direct Messages Gateway intents. Leave
+The pilot uses Guilds, Guild Messages, Direct Messages, Guild Reactions and
+Direct Message Reactions Gateway intents. Leave
 privileged Message Content, Server Members and Presence intents off for now.
 Without Message Content, use DMs, explicit bot mentions or slash commands. A
 reply whose content Discord omits receives a generic prompt to use `/ask`.
-Reactions will need their own explicitly tested intent setup.
+Reaction handling is offline-tested; live reconnect validation remains open.
 
 For OAuth2 installation, select `bot` and `applications.commands`. Grant View
 Channels, Send Messages, Send Messages in Threads, Read Message History, and
@@ -89,7 +92,9 @@ login, with built-in tools and implicit resources disabled.
    answer in this channel/DM and selects the new conversation. Enable Discord
    Developer Mode to copy the answer's message ID. This does not copy later turns
    or broaden access. The original conversation remains available. Failed partial
-   forks require local reconciliation rather than automatic retry. Branching
+   forks can be inspected with `/fork-recover request_id:...`, using the request
+   ID reported by the failed command. Recovery verifies existing files and does
+   not recreate a session. Branching
    requires local Node and the Pi SDK; trusted backend flags `--fork-node` and
    `--fork-sdk` can override their detected paths.
 6. A DM or explicit bot mention continues the selected conversation. Replying
@@ -111,8 +116,12 @@ login, with built-in tools and implicit resources disabled.
    explicit default ceilings of 32 calls and 2,000,000 reserved tokens, overridable
    by the command options; it does not approve spending. Inspect the returned ID
    with `/paper submission submission_id:...`, then inspect its job before approval.
-   Failed/interrupted source requests require local reconciliation. No automatic
-   retry is performed. In a configured shared channel, source completion queues
+   Failed source requests can be explicitly requeued with `/paper retry
+   submission_id:...` by their original author in the same destination. RUNNING
+   requests require stopped-worker recovery first. Retry retains the original
+   scope and limits and does not approve paid work. An unversioned URL can resolve
+   a newer revision, so inspect the new plan. No automatic retry is performed.
+   In a configured shared channel, source completion queues
    its starter and dedicated thread automatically; `/paper submission` reports
    that separate job's status. DMs do not create shared threads. For an existing
    source job, `/paper thread job_id:...` is also available. Repeating it reuses the
@@ -172,17 +181,43 @@ Use `/discussed question:...` to search exchanges indexed in the current space.
 Only confirmed bot-directed answers are projected, without provider calls. Results
 identify the question author and assistant separately and link to their messages.
 Private DM discussions are not searched from shared channels, even for the owner.
-Missing results do not prove a topic was never discussed: historical backfill and
-complete edit reconciliation remain pending. Verified post-delivery message edits
+Missing results do not prove a topic was never discussed: historical backfill is
+not implemented and reconnect reconciliation is eventually consistent. Verified message edits
 update discussion search without changing Pi's original turn. Edited questions
 are labeled as newer than the original answer. Unverifiable edits stay unavailable
 for search after projection. Edited answer attachments are read as bounded UTF-8
-`answer.md` files, not their delivery wrapper; pre-delivery edits still need
-reconciliation. Raw message deletions remove tracked
+`answer.md` files, not their delivery wrapper. Pre-delivery edits are retained in
+the immutable edit ledger and applied when delivery is confirmed. Raw message deletions remove tracked
 exchanges from search through the durable outbox, but do not erase Pi context or
-old local revisions. Deletions missed while offline still need reconciliation.
-Brain schema 003 and Arms schema 9 require explicit backed-up migration on existing databases. No migration is run
+old local revisions. Reconnect scans check exact tracked messages for missed
+edits/deletions without downloading channel history; legacy unknown transports
+are skipped. Failed checks remain unresolved rather than implying deletion.
+Brain schema 003 and Arms schema 10 require explicit backed-up migration on existing databases. No migration is run
 automatically by the Gateway.
+
+For an uncertain answer delivery, use `/delivery-recover turn_id:...
+answer_message_id:...` in its original channel or DM. Only the question author
+can recover it. The command checks the existing message's author, channel and
+nonce, with fresh access checks; it never resends. Missing or unverifiable
+messages remain unresolved.
+
+## Research and feedback pilot
+
+Use `/recall` for source evidence and accepted cards, `/discussed` for recorded
+bot-directed exchanges, and `/compare` with exact `doc_ID@vN` pins for a grouped
+evidence dossier. `/brainstorm` starts a separate conversation whose initial turn
+cannot read Brain; later turns can use scoped memory. These do not automatically
+create accepted research claims. `/save` previews an exact answer excerpt before
+explicit confirmation saves an unreviewed note; `/frontier` reads a Brain research
+thread, not a Discord conversation ID.
+
+On tracked answers or paper starters, ⭐ bookmarks, 🔥 records current interest,
+🔬 requests a deep dive, and ❓ flags unclear material. Removal withdraws the
+signal. `/interests` shows scoped signals; shared views do not include private
+interests. `/deep-dive` previews the request and requires explicit digest-bound
+confirmation before queuing a Pi turn. Reactions alone never spend tokens or
+change scientific review state. See the Arms README for command options and
+reconciliation limits.
 
 Command registration and handlers have offline tests using the installed
 discord.py SDK. REST permissions/delivery use synthetic responses. The Gateway
