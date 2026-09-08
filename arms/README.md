@@ -246,9 +246,10 @@ DM user/channel or shared channel. `resolve_conversation` returns that binding,
 its audience and read spaces; it never guesses from titles or recency. Replies
 to delivered bot answers resolve their exact conversation and quoted-turn
 anchor without changing the active DM selection. Missing anchors fail closed.
-Transport handlers must display active selections, authenticate Discord events,
-and route paper-starter replies into their paper threads; starter mapping is
-still pending. These library methods are not installed Discord commands.
+The Gateway authenticates Discord events and routes replies to registered paper
+starters into their dedicated threads, checking access to both destinations.
+`/new`, `/resume`, and `/session` expose explicit conversation selection; incoming
+reply routing uses the stored bindings rather than a global latest session.
 
 `enqueue` retains only explicitly forwarded bot-directed turns. Duplicate
 message delivery is idempotent; changed message content requires a separate edit
@@ -315,7 +316,9 @@ recovery validation remain open; these are not proven by native startup tests.
 authorizes the caller and destination, cancels queued turns, invalidates active
 turn capabilities, clears Pi's queue, aborts and closes the worker. A late answer
 cannot enter the delivery outbox. An interrupted conversation is marked STOPPED
-and cannot silently resume; explicit recovery/fork controls are still pending.
+and cannot silently resume. `/fork` can branch from an exact completed turn;
+`/fork-recover` can adopt a verified partial fork as described below. Neither
+operation replays an interrupted model call.
 Stopping an idle conversation cancels its queue without invalidating completed
 history. Stop cannot undo provider calls or remote sends already dispatched.
 
@@ -324,8 +327,9 @@ not a remote authorization API. It uses Pi's session SDK to retain the branch
 through an exact completed assistant entry. Pi's RPC `fork` instead targets a
 user message and is not used for this operation. The installed-SDK test verifies
 that later canary history is excluded and the source file is unchanged, without
-model calls. The future coordinator must authorize both scopes, stop the source
-worker, stage the destination binding, and reconcile partial filesystem output.
+model calls. The coordinator below authorizes both scopes, retires the source
+worker, and stages the destination binding. Partial filesystem output requires
+explicit verified recovery rather than automatic recreation.
 Do not expose the helper's filesystem arguments to Discord or model tools.
 
 `forks.fork_conversation(supervisor, ...)` provides the same-audience coordinator.
