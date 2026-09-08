@@ -16,7 +16,7 @@ dev = ["pytest>=8"]
 where = ["src"]
 
 [tool.setuptools.package-data]
-research_arms = ["integrations/*.ts"]
+research_arms = ["integrations/*.ts", "integrations/*.mjs"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

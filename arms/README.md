@@ -121,6 +121,15 @@ and cannot silently resume; explicit recovery/fork controls are still pending.
 Stopping an idle conversation cancels its queue without invalidating completed
 history. Stop cannot undo provider calls or remote sends already dispatched.
 
+`session_fork.fork_completed_session` is a trusted local branching primitive,
+not a remote authorization API. It uses Pi's session SDK to retain the branch
+through an exact completed assistant entry. Pi's RPC `fork` instead targets a
+user message and is not used for this operation. The installed-SDK test verifies
+that later canary history is excluded and the source file is unchanged, without
+model calls. The future coordinator must authorize both scopes, stop the source
+worker, stage the destination binding, and reconcile partial filesystem output.
+Do not expose the helper's filesystem arguments to Discord or model tools.
+
 Delivery claims persist SENDING before external dispatch and distinguish UNKNOWN
 from DELIVERED. Confirmations are idempotent; uncertain sends require explicit
 remote reconciliation and are never automatically resent. `validate_delivery`
