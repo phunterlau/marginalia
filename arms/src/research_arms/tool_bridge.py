@@ -21,6 +21,7 @@ class ToolBridge:
         self.server = None
         self.temporary = None
         self.clients = set()
+        self.authorize_turn = None
 
     async def start(self):
         if self.server is not None:
@@ -67,6 +68,8 @@ class ToolBridge:
             token, turn = self.token, self.turn_id
             if not token or not isinstance(request["token"], str) or not secrets.compare_digest(token, request["token"]):
                 raise Unavailable()
+            if self.authorize_turn is not None:
+                await asyncio.wait_for(self.authorize_turn(turn), 30)
             operation = self.OPERATIONS.get(request["tool"])
             if operation is None or not isinstance(request["space_id"], str):
                 raise Unavailable()
@@ -78,6 +81,10 @@ class ToolBridge:
                 raise ValueError("Invalid arguments")
             result = await asyncio.wait_for(asyncio.to_thread(self.registry.read, turn, request["space_id"],
                 operation, args[key], **{k: v for k, v in args.items() if k != key}), 20)
+            if token != self.token or turn != self.turn_id:
+                raise Unavailable()
+            if self.authorize_turn is not None:
+                await asyncio.wait_for(self.authorize_turn(turn), 30)
             if token != self.token or turn != self.turn_id:
                 raise Unavailable()
             response = {"ok": True, "data": result}

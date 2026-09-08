@@ -47,3 +47,23 @@ def test_private_socket_scope_token_rotation_and_revocation(setup):
             await bridge.close()
             assert not path.exists()
     asyncio.run(run())
+
+
+def test_transport_revoked_between_read_and_tool_result(setup):
+    arms, _ = setup
+    async def run():
+        ident = turn(arms, shared(arms))
+        arms.claim()
+        bridge = await ToolBridge(arms).start()
+        checks = []
+        async def authorize(turn_id):
+            assert turn_id == ident
+            checks.append(turn_id)
+            if len(checks) == 2: raise PermissionError("Removed from Discord channel")
+        bridge.authorize_turn = authorize
+        try:
+            token = bridge.bind(ident)["token"]
+            assert await call(bridge, token) == {"ok": False, "error": "Research resource unavailable"}
+            assert len(checks) == 2
+        finally: await bridge.close()
+    asyncio.run(run())

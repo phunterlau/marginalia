@@ -156,6 +156,21 @@ def test_missing_session_history_fails_before_new_dispatch(setup):
     asyncio.run(run())
 
 
+def test_transport_permission_denial_prevents_pi_launch(setup):
+    arms, _ = setup
+    turn(arms, shared(arms))
+    async def deny(ident): raise PermissionError("Transport access removed")
+    async def launch(*args, **kwargs): raise AssertionError("Must not launch")
+    async def run():
+        supervisor = Supervisor(arms, "/unused/pi", client_factory=launch, authorize_turn=deny)
+        try:
+            with pytest.raises(PermissionError): await supervisor.run_once()
+            with arms.connect(readonly=True) as db:
+                assert db.execute("SELECT COUNT(*) FROM events WHERE kind='pi_dispatched'").fetchone()[0] == 0
+        finally: await supervisor.close()
+    asyncio.run(run())
+
+
 def test_two_active_workers_and_revocation_during_prompt(setup):
     arms, spaces = setup
     for message in ["100", "101", "102"]:

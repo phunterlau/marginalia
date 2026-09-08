@@ -168,6 +168,17 @@ Discord nonce deduplication is time-limited, not a substitute for durable outbox
 state. See the [Discord message API](https://docs.discord.com/developers/resources/message).
 Tests use fake HTTP responses; no live Discord send has been performed.
 
+`DiscordAccess` resolves current DM recipients, channel/guild identity, configured
+parent project, roles, member overrides, and thread access from fresh REST reads.
+Group DMs, mismatched parents, archived/locked threads, and unavailable permissions
+fail closed. Private threads still map to the parent's shared Brain space.
+Pass `authorize_turn=access.authorize_turn` to the supervisor for Discord work:
+checks run before launch/dispatch, around tool results, before answer persistence,
+and during maintenance. The Gateway adapter must also authorize incoming events
+and supply the sender's audience check; omitting the hook is only for trusted
+local workflows. See [Discord permissions](https://docs.discord.com/developers/topics/permissions)
+and [thread permissions](https://docs.discord.com/developers/topics/threads).
+
 ## Remaining integration
 
 This is an offline control-plane foundation, **not a running Discord bot**.
