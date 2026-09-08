@@ -83,8 +83,25 @@ feedback through discussion reconciliation. Offline deletion of paper starters
 still needs resource recovery; a failed reaction endpoint alone is not treated
 as proof of deletion.
 
-An explicit approved deep-dive Run action remains pending. Current event wiring
-is mock-tested, not live Discord validated. Missed events can leave signals stale
+`/deep-dive message_id:<ID>` previews the exact context for an active 🔬 request.
+Repeat with `confirm:true digest:<preview digest>` to approve one Pi turn in a
+separate conversation. Personal work requires the owner; shared work requires a
+maintainer. The preview binds source content/revision, destination, approving
+principal, policy version and instructions. A source answer must have a complete,
+current discussion projection and at most 12,000 characters; a paper starter
+supplies its pinned source identity. No entire session is copied. Reactions alone
+still never schedule work. Approval authorizes Pi synthesis/tool steps within one
+turn, not ingestion, extraction, experiments, or scientific acceptance.
+
+Approval is recorded before enqueueing. Repeating the same preview, including via
+another interaction ID, resolves to the same work identity rather than another
+paid turn. Interrupted setup can be retried with the original interaction identity;
+policy changes fail closed. After approval, removing 🔬 withdraws the signal but
+does not cancel separately approved work; use `/stop` in that conversation. The
+command returns the conversation ID for `/resume` and does not switch the active
+conversation automatically. This workflow is mocked, not live validated.
+
+Current event wiring is mock-tested, not live Discord validated. Missed events can leave signals stale
 until reconciliation finishes; this is eventually consistent, not an atomic
 snapshot of Discord while users continue reacting.
 

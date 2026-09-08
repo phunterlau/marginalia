@@ -155,7 +155,7 @@ class ArmsRegistry:
         return row
 
     def new_conversation(self, discord_user, *, channel_id, guild_id=None,
-                         parent_channel_id=None, name="Research", read_spaces=(), request_id=None, blind_first=False, paper_pin=None):
+                         parent_channel_id=None, name="Research", read_spaces=(), request_id=None, blind_first=False, paper_pin=None, expected_policy_version=None):
         if type(blind_first) is not bool: raise ValueError("Invalid brainstorm mode")
         if paper_pin is not None and (not blind_first or not isinstance(paper_pin, str) or not re.fullmatch(r"doc_[A-Za-z0-9_-]{1,90}@v[1-9][0-9]{0,5}", paper_pin)):
             raise ValueError("Brainstorm paper requires an exact doc_ID@vN pin")
@@ -187,6 +187,7 @@ class ArmsRegistry:
                     row, current = self._authorized(db, conversation, discord_user, channel_id, guild_id)
                     desired = self.spaces.scope(principal["principal"], conversation_id=conversation,
                         writable_space=space, read_spaces=tuple(read_spaces))
+                    if expected_policy_version is not None and desired.policy_version != expected_policy_version: raise Unavailable()
                     was_blind = db.execute("SELECT 1 FROM events WHERE kind='brainstorm_created' AND subject=?", (conversation,)).fetchone() is not None
                     old_pin = db.execute("SELECT subject FROM events WHERE kind='brainstorm_paper' AND json_extract(subject,'$.conversation_id')=?", (conversation,)).fetchone()
                     old_pin = json.loads(old_pin[0])["pin"] if old_pin else None
@@ -200,6 +201,7 @@ class ArmsRegistry:
                                           writable_space=space, read_spaces=tuple(read_spaces))
             except (PermissionError, LookupError, ValueError):
                 raise Unavailable() from None
+            if expected_policy_version is not None and scope.policy_version != expected_policy_version: raise Unavailable()
             paper = None
             if paper_pin is not None:
                 document_id, revision = paper_pin.split("@")

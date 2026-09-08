@@ -30,6 +30,7 @@ from .research_commands import recall as research_recall
 from .research_commands import compare as research_compare
 from .research_commands import frontier as research_frontier
 from .saves import save_excerpt
+from .deep_dives import preview as preview_deep_dive, run as run_deep_dive
 from .feedback import observe as observe_feedback, view as feedback_view, clear as clear_feedback
 from .feedback_reconcile import reconcile as reconcile_feedback, FeedbackReconciler
 from .discussion_edits import observe as observe_discussion_edit
@@ -76,6 +77,9 @@ class ResearchGateway(discord.Client):
         self._commands()
 
     def _commands(self):
+        @self.tree.command(name="deep-dive", description="Preview or approve a pending deep dive; reactions alone never run it")
+        async def deep_dive(interaction: discord.Interaction, message_id: str, confirm: bool = False, digest: str | None = None):
+            await self.execute(interaction, "deep_dive", message_id=message_id, confirm=confirm, digest=digest)
         @self.tree.command(name="interests", description="Show project interest or your personal reaction signals; no model work")
         async def interests(interaction: discord.Interaction, spaces: str = "", refresh_message: str | None = None):
             await self.execute(interaction, "interests", spaces=spaces, refresh_message=refresh_message)
@@ -336,13 +340,15 @@ class ResearchGateway(discord.Client):
                     str(interaction.id), destination, **options)
             text = json.dumps(result, ensure_ascii=False)
             if len(text) > 1700:
-                if len(text.encode()) > (110000 if command.startswith("publish_") else 66000 if command in {"discussed", "recall", "compare", "save", "frontier"} else 16000): raise ValueError("Result exceeds bound")
+                if len(text.encode()) > (110000 if command.startswith("publish_") else 66000 if command in {"discussed", "recall", "compare", "save", "frontier", "deep_dive"} else 16000): raise ValueError("Result exceeds bound")
                 await interaction.edit_original_response(content="Research result attached; inspect provenance and review labels.",
                     attachments=[discord.File(io.BytesIO(text.encode()), filename="research-result.json")],
                     allowed_mentions=discord.AllowedMentions.none())
                 return
         except ValueError:
-            text = ("Frontier unavailable or oversized. Use an exact Brain research-thread obj_ID and its returned next_cursor as after_id. Oversized records require the local reader."
+            text = ("Deep dive not confirmed. Preview an active 🔬 request in this channel, then repeat with confirm:true and the exact digest. Owner/maintainer approval is required; stale or oversized source answers cannot be queued."
+                    if command == "deep_dive" else
+                    "Frontier unavailable or oversized. Use an exact Brain research-thread obj_ID and its returned next_cursor as after_id. Oversized records require the local reader."
                     if command == "frontier" else
                     "Save not confirmed. Preview a current /discussed revision with 0-based start/end character offsets (end exclusive, at most 8,000 characters), then repeat with confirm:true and its exact digest. Shared saves require a maintainer."
                     if command == "save" else
@@ -361,6 +367,14 @@ class ResearchGateway(discord.Client):
 
     async def handle(self, command, actor, channel, guild, message_id, destination, **options):
         """Internal authenticated handler; never expose caller-supplied destination data."""
+        if command == "deep_dive":
+            async with self.feedback_lock:
+                if options.get("confirm", False):
+                    return run_deep_dive(self.registry, actor, guild, channel, options["message_id"], digest=options.get("digest"),
+                        request_id=message_id, expected_space=destination["space_id"], parent_channel_id=destination.get("parent_channel_id"))
+                result = preview_deep_dive(self.registry, actor, guild, channel, options["message_id"])
+                if result["space_id"] != destination["space_id"]: raise Unavailable()
+                return result
         if command == "interests":
             attached = options.get("spaces", "")
             if not isinstance(attached, str) or len(attached) > 1300 or len(attached.split()) > 16 or (guild is not None and attached.strip()):
