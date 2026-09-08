@@ -38,6 +38,21 @@ Opening an old registry does not perform migrations automatically.
 
 ## Reliable research recall
 
+The local `research_arms.feedback` interface records scoped ⭐ bookmarks, 🔥
+interest, 🔬 pending deep-dive requests, and ❓ clarification flags against known
+delivered answers or completed paper starters. It uses an append-only operational
+event ledger; duplicate active states do not append another event. Removal
+withdraws the signal. Interest scores have a 14-day half-life from activation;
+duplicate add events do not refresh that timestamp. Project views aggregate only
+that project's 🔥 signals from current members; personal views include only the
+actor's signals within their explicitly readable spaces. No signals alter Brain
+review states, create scientific memory, or dispatch model work.
+
+This is tested local infrastructure, not enabled Discord reaction handling yet.
+Authenticated raw-event wiring, reaction-list reconciliation, and an explicit
+approved deep-dive Run action remain pending. A stale scope cannot add a signal,
+but withdrawal of a known signal may still remove it after revocation.
+
 `/frontier thread_id:<Brain research-thread obj_ID>` presents current goals,
 uncertainties, pending experiments and linked research records. This is an
 **exploratory** view: every record retains its own origin/review state, including
