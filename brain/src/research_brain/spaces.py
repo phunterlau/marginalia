@@ -209,7 +209,7 @@ class SpaceRegistry:
         Arms must additionally bind the supplied scope to its authenticated session.
         """
         allowed = {"get_document", "get_evidence", "get_research_object", "recall", "search",
-                   "read_object_field", "read_evidence_field", "paper_overview", "paper_cards", "search_discussions"}
+                   "read_object_field", "read_evidence_field", "paper_overview", "paper_cards", "search_discussions", "discussion_excerpt"}
         if operation not in allowed or kwargs.get("semantic_live"):
             raise PermissionError("Operation unavailable")
         self.validate(scope, space_id=space_id)
@@ -227,3 +227,12 @@ class SpaceRegistry:
             if (record.get("guild_id") is None) != scope.audience.startswith("personal:"):
                 raise PermissionError("Discussion audience mismatch")
             return self.open(scope.writable_space).record_discussion(record)
+
+    def save_discussion_excerpt(self, scope: ContextScope, record_id: str, *, revision: int,
+                                start: int, end: int, expected_digest: str, actor: str):
+        with self.connect() as policy:
+            policy.execute("BEGIN IMMEDIATE")
+            self.validate(scope, space_id=scope.writable_space, maintainer=True)
+            result = self.open(scope.writable_space).save_discussion_excerpt(record_id,
+                revision=revision, start=start, end=end, expected_digest=expected_digest, actor=actor)
+            return {"space_id": scope.writable_space, **result}

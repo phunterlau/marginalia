@@ -28,6 +28,7 @@ from .discussion_worker import DiscussionWorker
 from .discussion_reconcile import DiscussionReconciler
 from .research_commands import recall as research_recall
 from .research_commands import compare as research_compare
+from .saves import save_excerpt
 from .discussion_edits import observe as observe_discussion_edit
 from .forks import fork_conversation
 from .registry import snowflake
@@ -67,6 +68,11 @@ class ResearchGateway(discord.Client):
         self._commands()
 
     def _commands(self):
+        @self.tree.command(name="save", description="Preview or explicitly save an exact answer excerpt as unreviewed memory")
+        async def save(interaction: discord.Interaction, answer_message_id: str, revision: int, start: int, end: int,
+                       confirm: bool = False, digest: str | None = None):
+            await self.execute(interaction, "save", answer_message_id=answer_message_id, revision=revision,
+                start=start, end=end, confirm=confirm, digest=digest)
         @self.tree.command(name="brainstorm", description="Start a separate blind-first research conversation; follow up to use memory")
         async def brainstorm(interaction: discord.Interaction, question: str, paper: str | None = None):
             await self.execute(interaction, "brainstorm", question=question, paper=paper)
@@ -285,13 +291,15 @@ class ResearchGateway(discord.Client):
                     str(interaction.id), destination, **options)
             text = json.dumps(result, ensure_ascii=False)
             if len(text) > 1700:
-                if len(text.encode()) > (110000 if command.startswith("publish_") else 66000 if command in {"discussed", "recall", "compare"} else 16000): raise ValueError("Result exceeds bound")
+                if len(text.encode()) > (110000 if command.startswith("publish_") else 66000 if command in {"discussed", "recall", "compare", "save"} else 16000): raise ValueError("Result exceeds bound")
                 await interaction.edit_original_response(content="Research result attached; inspect provenance and review labels.",
                     attachments=[discord.File(io.BytesIO(text.encode()), filename="research-result.json")],
                     allowed_mentions=discord.AllowedMentions.none())
                 return
         except ValueError:
-            text = ("Approval status not confirmed. Inspect /paper job and use its exact plan digest with confirm:true."
+            text = ("Save not confirmed. Preview a current /discussed revision with 0-based start/end character offsets (end exclusive, at most 8,000 characters), then repeat with confirm:true and its exact digest. Shared saves require a maintainer."
+                    if command == "save" else
+                    "Approval status not confirmed. Inspect /paper job and use its exact plan digest with confirm:true."
                     if command == "paper_approve" else
                     "Review not confirmed. Reload /card show for the current version; dispute/reject require a note. Oversized cards need the local review workbench."
                     if command.startswith("card_") else
@@ -306,6 +314,10 @@ class ResearchGateway(discord.Client):
 
     async def handle(self, command, actor, channel, guild, message_id, destination, **options):
         """Internal authenticated handler; never expose caller-supplied destination data."""
+        if command == "save":
+            return await asyncio.to_thread(save_excerpt, self.registry, actor, channel, guild,
+                options["answer_message_id"], revision=options["revision"], start=options["start"], end=options["end"],
+                confirm=options.get("confirm", False), digest=options.get("digest"))
         if command == "brainstorm":
             question = options["question"]
             if not isinstance(question, str) or not question.strip() or len(question) > 20000 or "\x00" in question:

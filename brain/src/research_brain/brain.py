@@ -90,6 +90,18 @@ class Brain:
         from .discussions import search
         return search(self.store, query, limit=limit)
 
+    def discussion_excerpt(self, record_id: str, *, revision: int, start: int, end: int):
+        from .discussion_saves import excerpt
+        return excerpt(self.store, record_id, revision=revision, start=start, end=end)
+
+    def save_discussion_excerpt(self, record_id: str, *, revision: int, start: int, end: int,
+                                expected_digest: str, actor: str = "user"):
+        from .discussion_saves import excerpt
+        if not isinstance(expected_digest, str) or len(expected_digest) != 64:
+            raise ValueError("Exact preview digest required")
+        return excerpt(self.store, record_id, revision=revision, start=start, end=end,
+            expected_digest=expected_digest, actor=actor)
+
     def paper_overview(self, document_id: str) -> dict[str, Any]:
         """Bounded metadata-only view; not a model-generated scientific summary."""
         document = self.get_document(document_id)

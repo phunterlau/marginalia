@@ -56,7 +56,25 @@ without creating a conversation. The pin is immutable for a retried request and
 travels with both stages as source identity only, not paper passages or cards.
 This explicit selection takes precedence over paper-thread starting-point metadata.
 It is a starting point, not a restriction preventing later authorized cross-paper
-retrieval. Structured Save to Brain controls remain pending.
+retrieval.
+
+`/save answer_message_id revision start end` previews an exact excerpt from the
+current indexed answer in this channel. Obtain the revision from `/discussed`.
+Offsets are zero-based decoded characters, end-exclusive, selecting 1–8,000
+characters. Repeat with `confirm:true digest:<preview digest>` to retain it.
+Shared saves require a maintainer; personal saves require the owner. Stale or
+unfinished projections and wrong-channel answers fail closed. The confirmation
+rechecks the exact revision and digest atomically with note creation; duplicate
+confirmations return the same note without another audit event.
+
+Saved excerpts are `AGENT_INTERPRETED` and `UNREVIEWED`, never observed experiments,
+accepted memory, or automatically verified paper evidence. Their provenance
+retains the discussion revision/digest, selected span, author attribution, answer
+link and Pi entry ID—not unrelated messages or session files. Original discussion
+records remain unchanged. Later edits/deletions of the discussion do not silently
+rewrite or delete this explicitly saved historical excerpt. Source citations in
+the text remain unvalidated text, not manufactured evidence links. Structured
+proposal editing and claim-level evidence annotations are not part of this command.
 
 `/recall question` searches only the current destination's Brain space, without
 starting or resuming Pi. It returns up to three source/accepted-record hits with
