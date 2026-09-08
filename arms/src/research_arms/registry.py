@@ -504,6 +504,7 @@ class ArmsRegistry:
                 ("paper_thread_jobs", "submission_id", "state='RUNNING'", "thread_job_interrupted"),
                 ("paper_threads", "id", "state IN ('MESSAGE_SENDING','MESSAGE_READY','THREAD_SENDING','THREAD_READY','RECONCILING')", "paper_thread_interrupted"),
                 ("session_forks", "request_id", "state='PREPARED'", "fork_interrupted"),
+                ("publications", "id", "state='RUNNING'", "publication_interrupted"),
             ):
                 identities = [r[0] for r in db.execute(f"SELECT {key} FROM {table} WHERE {condition}")]
                 for ident in identities:

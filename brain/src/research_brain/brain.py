@@ -43,6 +43,45 @@ class Brain:
     def get_evidence(self, block_id: str) -> dict[str, Any] | None:
         return self.store.get_evidence(block_id)
 
+    def copy_source_revision_to(self, destination: "Brain", block_id: str, *, expected_sha256: str) -> IngestResult:
+        """Trusted, deterministic local source transfer; never copies research memory."""
+        import hashlib
+        from .ingest import ResolvedSource, MAX_DOWNLOAD_BYTES, arxiv_identity
+        evidence = self.get_evidence(block_id)
+        if evidence is None or evidence["source_sha256"] != expected_sha256:
+            raise ValueError("Source revision unavailable or changed")
+        identity = arxiv_identity(evidence["source_uri"])
+        if identity is None or identity[1] != evidence["version_label"] or identity[1] is None:
+            raise ValueError("An exact arXiv source revision is required")
+        path = Path(evidence["source_path"]).resolve(strict=True)
+        if not path.is_relative_to((self.root / "assets").resolve()) or path.stat().st_size > MAX_DOWNLOAD_BYTES:
+            raise ValueError("Invalid source asset")
+        with path.open("rb") as stream:
+            data = stream.read(MAX_DOWNLOAD_BYTES + 1)
+        if len(data) > MAX_DOWNLOAD_BYTES or hashlib.sha256(data).hexdigest() != expected_sha256:
+            raise ValueError("Source asset hash or size mismatch")
+        with self.store.connect() as db:
+            asset = db.execute("SELECT a.kind,a.content_type FROM source_assets a JOIN document_versions v ON v.source_asset_id=a.id WHERE v.id=?",
+                               (evidence["document_version_id"],)).fetchone()
+        resolved = ResolvedSource(data=data, uri=evidence["source_uri"], name=path.name,
+            content_type=asset["content_type"], kind=asset["kind"],
+            canonical_document_uri="https://arxiv.org/abs/" + identity[0], version_label=identity[1],
+            external_ids={"arxiv": identity[0]}, requested_uri=evidence["source_uri"],
+            license_uri=evidence["license_uri"])
+        return destination.ingestor._ingest_resolved(resolved)
+
+    def compilation_blocks(self, document_id: str, compilation_id: str) -> list[dict[str, Any]]:
+        """Trusted backend complete-list interface; transport callers must bound output."""
+        return self.store.get_blocks(document_id, compilation_id=compilation_id)
+
+    def publish_notes(self, digest: str, notes: list[dict[str, Any]]) -> dict[str, Any]:
+        return self.store.publish_notes(digest, notes)
+
+    def publication_receipt(self, digest: str) -> dict[str, Any] | None:
+        from .ids import stable_id
+        record = self.get_research_object(stable_id("obj", "publication", digest))
+        return record["structured"] if record and record["kind"] == "publication_receipt" else None
+
     def paper_overview(self, document_id: str) -> dict[str, Any]:
         """Bounded metadata-only view; not a model-generated scientific summary."""
         document = self.get_document(document_id)

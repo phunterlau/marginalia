@@ -608,6 +608,43 @@ class SQLiteStore:
                 created_at=row["created_at"], updated_at=row["updated_at"],
             )
 
+    def publish_notes(self, digest: str, notes: list[dict[str, Any]]) -> dict[str, Any]:
+        """Atomic idempotent destination records; input contains no private IDs."""
+        if not isinstance(digest, str) or not re.fullmatch(r"[a-f0-9]{64}", digest) or not isinstance(notes, list) or len(notes) > 10:
+            raise ValueError("Invalid publication batch")
+        receipt_id = stable_id("obj", "publication", digest)
+        with self.connect() as db:
+            db.execute("BEGIN IMMEDIATE")
+            old = db.execute("SELECT structured_json FROM research_objects WHERE id=? AND kind='publication_receipt'", (receipt_id,)).fetchone()
+            if old: return json.loads(old[0])
+            identities = []
+            for index, note in enumerate(notes):
+                if (set(note) != {"title", "body", "origin", "evidence"} or note["origin"] not in ORIGINS
+                        or not all(isinstance(note[k], str) and len(note[k]) <= 20000 for k in ("title", "body"))
+                        or not isinstance(note["evidence"], list) or len(note["evidence"]) > 50):
+                    raise ValueError("Invalid published note")
+                ident = stable_id("obj", "published-note", digest, str(index))
+                identities.append(ident)
+                structured = json.dumps({"publication_digest": digest}, sort_keys=True)
+                timestamp = utc_now()
+                db.execute("INSERT INTO research_objects(id,kind,title,body,structured_json,origin,review_state,confidence,created_at,updated_at) VALUES (?,'note',?,?,?,?,'UNREVIEWED',NULL,?,?)",
+                    (ident, note["title"], note["body"], structured, note["origin"], timestamp, timestamp))
+                db.execute("INSERT INTO object_fts(object_id,kind,title,body,structured) VALUES (?,'note',?,?,?)",
+                    (ident, note["title"], note["body"], structured))
+                for link in note["evidence"]:
+                    if (set(link) != {"block_id", "relation"} or not isinstance(link["relation"], str)
+                            or len(link["relation"]) > 20000): raise ValueError("Invalid publication evidence")
+                    db.execute("INSERT INTO evidence_links(object_id,block_id,relation,confidence) VALUES (?,?,?,NULL)",
+                        (ident, link["block_id"], link["relation"]))
+                self._append_event(db, "object_published", ident, {"digest": digest, "origin": note["origin"], "review_state": "UNREVIEWED"}, "publication")
+            receipt = {"digest": digest, "note_ids": identities, "receipt_id": receipt_id}
+            structured = json.dumps(receipt, sort_keys=True)
+            timestamp = utc_now()
+            db.execute("INSERT INTO research_objects(id,kind,title,body,structured_json,origin,review_state,confidence,created_at,updated_at) VALUES (?,'publication_receipt','Publication receipt','Completed curated publication',?,'SYSTEM_DERIVED','UNREVIEWED',NULL,?,?)",
+                (receipt_id, structured, timestamp, timestamp))
+            self._append_event(db, "publication_completed", receipt_id, receipt, "publication")
+            return receipt
+
     def create_link(
         self,
         *,

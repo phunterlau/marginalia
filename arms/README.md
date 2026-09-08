@@ -295,8 +295,8 @@ append Brain's audit event with the Discord actor. Stale submissions must reload
 they are not automatically retried. Oversized cards require the local workbench.
 Pi tools remain read-only, and no real cards have been accepted by automated tests.
 
-`publication.Publications` is the local consent foundation (not yet a Discord
-command or publication executor). `prepare` selects the owner's plain curated
+`publication.Publications` is the local consent and execution interface (not yet a Discord
+command). `prepare` selects the owner's plain curated
 notes and/or evidence blocks identifying pinned arXiv papers, and creates an
 immutable bounded preview. Linked evidence is included explicitly using bundle
 aliases; private object/block/session IDs and filesystem paths are not exported.
@@ -306,13 +306,22 @@ are shown before consent. Destination maintainers cannot inspect a PREVIEW.
 `decide(..., action="consent")` requires its source owner and exact digest;
 `action="approve"` additionally requires a destination maintainer. The owner may
 cancel before execution. Policy changes invalidate pending approvals. Every
-decision is audited; approved snapshots still create **zero destination records**.
-Destination source ingestion, evidence remapping, retry-safe publication execution
-and Discord controls remain to be implemented. Publication will not imply review
-acceptance or copy private Pi histories.
+decision is audited; approval alone still creates **zero destination records**.
+`execute(actor, publication_id, digest)` requires current destination-maintainer
+access, owner consent, destination approval and unchanged policy. It copies only
+selected hash-verified local arXiv source assets, recompiles them in the destination,
+and resolves evidence by exact text, equation, member, line/character/page locators
+and source hash. Parser mismatches fail closed. Notes preserve origin and remain
+UNREVIEWED; all notes and a destination receipt commit atomically. Approved source
+papers may be searchable earlier, but partial publication is not marked complete.
+No model calls, downloads, private session files or unrelated memory are copied.
+An uncertain execution requires explicit `retry=True` after inspection; a receipt
+reconciles a lost Arms completion without duplicating destination records. Recovery
+quarantines interrupted publications. Discord controls and live sharing validation
+remain pending. Publication does not imply scientific acceptance.
 
 This is a partial pilot, **not a validated live deployment**. Complete Discord
-recovery controls, publication execution/commands, discussion search and reactions still need integration.
+recovery controls, publication commands, discussion search and reactions still need integration.
 The delivery and permissions paths are mock-tested, not live-tested. There is no
 HTTP listener, installed daemon or LaunchAgent.
 

@@ -1,4 +1,4 @@
-"""Immutable publication previews and explicit consent. No destination writes yet."""
+"""Immutable consent and explicit retry-safe publication into a shared Brain."""
 import hashlib
 import json
 import re
@@ -11,7 +11,7 @@ from .registry import Unavailable, encode, now
 def safe_text(value):
     if not isinstance(value, str) or len(value) > 20000 or "\x00" in value:
         raise ValueError("Publication text exceeds bounds")
-    if re.search(r"\b(?:obj|block|comp|conv|asset|submission|job)_[A-Za-z0-9_-]+|file://|/(?:Users|home|private)/", value):
+    if re.search(r"\b(?:obj|block|comp|conv|asset|submission|job|doc|version|run|turn|publication|session)_[A-Za-z0-9_-]+|file://|/(?:Users|home|private)/", value):
         raise ValueError("Remove unresolved private references or paths before publication")
     return value
 
@@ -97,7 +97,7 @@ class Publications:
         principal = self._principal(actor)
         if owner and principal != row["owner"]: raise Unavailable()
         space = row["source_space"] if principal == row["owner"] else row["destination_space"]
-        if principal != row["owner"] and row["state"] not in {"CONSENTED", "APPROVED"}: raise Unavailable()
+        if principal != row["owner"] and row["state"] not in {"CONSENTED", "APPROVED", "RUNNING", "NEEDS_ATTENTION", "COMPLETE"}: raise Unavailable()
         scope = self.registry.spaces.scope(principal, conversation_id="publication-access", writable_space=space)
         self.registry.spaces.validate(scope, maintainer=True)
         if scope.policy_version != row["policy_version"]: raise Unavailable()
@@ -133,3 +133,75 @@ class Publications:
                 db.execute("UPDATE publications SET state=?" + field + " WHERE id=?", args)
                 db.execute("INSERT INTO events(kind,subject,at) VALUES (?,?,?)", ("publication_" + action, ident, now()))
         return {"publication_id": ident, "state": target, "digest": digest}
+
+    def _execution_access(self, actor, row):
+        principal = self._access(actor, row)
+        if row["consent_actor"] != row["owner"] or not row["approval_actor"]: raise Unavailable()
+        for person, space, maintainer in ((principal, row["destination_space"], True),
+                (row["owner"], row["source_space"], True),
+                (row["approval_actor"], row["destination_space"], True)):
+            scope = self.registry.spaces.scope(person, conversation_id="publication-execute", writable_space=space)
+            self.registry.spaces.validate(scope, maintainer=maintainer)
+            if scope.policy_version != row["policy_version"]: raise Unavailable()
+
+    def execute(self, actor, ident, digest, *, retry=False):
+        """Trusted backend action: no network/model calls, no session copying.
+
+        Approved sources may become searchable before the whole publication
+        completes. Notes and a destination receipt commit atomically; the receipt
+        reconciles a crash between the separate Brain and Arms commits.
+        """
+        with self.registry.connect() as db:
+            db.execute("BEGIN IMMEDIATE")
+            row = db.execute("SELECT * FROM publications WHERE id=?", (ident,)).fetchone()
+            if row is None: raise Unavailable()
+            row = dict(row)
+            self._execution_access(actor, row)
+            if row["digest"] != digest: raise ValueError("Publication digest changed")
+            bundle, private = json.loads(row["bundle_json"]), json.loads(row["private_refs_json"])
+            if hashlib.sha256(encode(bundle).encode()).hexdigest() != digest: raise ValueError("Publication snapshot corrupted")
+            if row["state"] != "COMPLETE":
+                if row["state"] != "APPROVED" and not (row["state"] == "NEEDS_ATTENTION" and retry is True):
+                    raise ValueError("Publication requires approval or explicit inspected retry")
+                db.execute("UPDATE publications SET state='RUNNING' WHERE id=?", (ident,))
+                db.execute("INSERT INTO events(kind,subject,at) VALUES ('publication_dispatched',?,?)", (ident, now()))
+        try:
+            source = self.registry.spaces.open(row["source_space"])
+            destination = self.registry.spaces.open(row["destination_space"])
+            mappings, papers = {}, {}
+            cached = destination.publication_receipt(digest)
+            for paper in ([] if cached else bundle["papers"]):
+                self._execution_access(actor, row)
+                selected = next(e for e in bundle["evidence"] if e["paper"] == paper["ref"])
+                block_id = private["blocks"][selected["ref"]]["block_id"]
+                current = source.get_evidence(block_id)
+                if current is None or current["source_uri"] != paper["source_url"] or current["version_label"] != paper["revision"]:
+                    raise ValueError("Approved source identity changed")
+                imported = source.copy_source_revision_to(destination, block_id, expected_sha256=paper["sha256"])
+                papers[paper["ref"]] = destination.compilation_blocks(imported.document_id, imported.compilation_id)
+            for evidence in ([] if cached else bundle["evidence"]):
+                matches = [block for block in papers[evidence["paper"]]
+                    if (block["raw_text"], block["raw_latex"], block["source_member"] or "", block["line_start"], block["line_end"],
+                        block["char_start"], block["char_end"], block["page"], block["raw_sha256"]) ==
+                       (evidence["text"], evidence["latex"], evidence["member"], evidence["line_start"], evidence["line_end"],
+                        evidence["char_start"], evidence["char_end"], evidence["page"], evidence["raw_text_sha256"])]
+                if len(matches) != 1: raise ValueError("Destination evidence could not be resolved exactly")
+                mappings[evidence["ref"]] = matches[0]["id"]
+            notes = [{"title": note["title"], "body": note["body"], "origin": note["origin"],
+                "evidence": [{"block_id": mappings[link["ref"]], "relation": link["relation"]} for link in note["evidence"]]}
+                for note in ([] if cached else bundle["notes"])]
+            with self.registry.spaces.connect() as policy:
+                policy.execute("BEGIN IMMEDIATE")
+                self._execution_access(actor, row)
+                receipt = cached or destination.publish_notes(digest, notes)
+                with self.registry.connect() as db:
+                    db.execute("BEGIN IMMEDIATE")
+                    changed = db.execute("UPDATE publications SET state='COMPLETE' WHERE id=? AND state='RUNNING'", (ident,)).rowcount
+                    if changed:
+                        db.execute("INSERT INTO events(kind,subject,at) VALUES ('publication_completed',?,?)", (ident, now()))
+            return {"destination_space": row["destination_space"], "state": "COMPLETE", **receipt}
+        except BaseException:
+            with self.registry.connect() as db:
+                changed = db.execute("UPDATE publications SET state='NEEDS_ATTENTION' WHERE id=? AND state='RUNNING'", (ident,)).rowcount
+                if changed: db.execute("INSERT INTO events(kind,subject,at) VALUES ('publication_uncertain',?,?)", (ident, now()))
+            raise
