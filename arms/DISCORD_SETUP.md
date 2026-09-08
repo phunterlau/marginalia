@@ -77,6 +77,50 @@ remain awake and online. Interrupted turns require attention rather than paid
 replay; uncertain deliveries require reconciliation. Pi uses its configured
 login, with built-in tools and implicit resources disabled.
 
+## Optional macOS LaunchAgent (after the foreground gate)
+
+Do not install this until the foreground pilot and recovery checks pass and you
+explicitly choose background operation. Nothing in the package installs or
+starts a LaunchAgent automatically. Installation starts the Gateway and can
+process queued Pi turns; it is not a dry run.
+
+Use Keychain Access locally to create a generic password item with a dedicated
+service/name (for example `marginalia-discord`) and account (`owner`). Store the
+bot token as its password. Do not put the password in shell arguments, a plist,
+this repository, or a chat. First test the following command in the same external
+Python environment used for the successful foreground pilot:
+
+```sh
+python -m research_arms.macos_service --run \
+  --root /absolute/arms-runtime --spaces-root /absolute/brain-spaces \
+  --pi /absolute/path/to/pi --fork-node /absolute/path/to/node \
+  --keychain-service marginalia-discord --keychain-account owner
+```
+
+Keychain may ask for local permission. The launcher captures the token without
+logging it and passes it only in the Gateway process environment. A locked or
+inaccessible Keychain fails closed. Stop the foreground process before installing.
+
+Replace `--run` with `--plist` to print a plist without accessing Keychain or
+connecting. Save that output as the exact user-owned file
+`/Users/YOUR_USER/Library/LaunchAgents/local.marginalia.arms.plist`, replacing
+`YOUR_USER` and all absolute paths above. Do not overwrite an existing service
+without inspecting it. Verify and explicitly install it with:
+
+```sh
+plutil -lint /Users/YOUR_USER/Library/LaunchAgents/local.marginalia.arms.plist
+launchctl bootstrap gui/$(id -u) /Users/YOUR_USER/Library/LaunchAgents/local.marginalia.arms.plist
+launchctl print gui/$(id -u)/local.marginalia.arms
+```
+
+To stop/unload, use `launchctl bootout gui/$(id -u)/local.marginalia.arms`.
+The configuration runs at login, not before login, and deliberately has no
+KeepAlive restart loop. It never synchronizes commands or enables the paid
+absorption worker. It does not prevent Mac sleep. After failure, inspect and
+recover interrupted work before manually starting again. No service has been
+installed or live-validated by the automated tests; plist and Keychain adapters
+are tested offline with synthetic credentials.
+
 ## First interaction
 
 1. In a DM or designated shared channel, run `/new name:pilot`.
