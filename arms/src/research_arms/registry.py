@@ -44,7 +44,7 @@ def visibility(scope):
 
 
 class ArmsRegistry:
-    VERSION = 9
+    VERSION = 10
 
     def __init__(self, root, spaces: SpaceRegistry, *, create=False):
         self.root = Path(root).resolve()
@@ -56,7 +56,7 @@ class ArmsRegistry:
             with self.connect(create=True) as db:
                 db.executescript("""
                     CREATE TABLE meta(version INTEGER NOT NULL);
-                    INSERT INTO meta VALUES (9);
+                    INSERT INTO meta VALUES (10);
                     CREATE TABLE principals(discord_user TEXT PRIMARY KEY, principal TEXT UNIQUE NOT NULL,
                                             personal_space TEXT NOT NULL);
                     CREATE TABLE channels(guild_id TEXT NOT NULL, channel_id TEXT NOT NULL,
@@ -103,6 +103,9 @@ class ArmsRegistry:
                         consent_actor TEXT, approval_actor TEXT, created_at TEXT NOT NULL);
                     CREATE TABLE discussion_jobs(id TEXT PRIMARY KEY, turn_id TEXT NOT NULL REFERENCES turns(id),
                         scope_json TEXT NOT NULL, payload_json TEXT NOT NULL, state TEXT NOT NULL, created_at TEXT NOT NULL);
+                    CREATE TABLE discussion_edits(turn_id TEXT NOT NULL REFERENCES turns(id), field TEXT NOT NULL,
+                        edited_at TEXT NOT NULL, content TEXT, verified INTEGER NOT NULL,
+                        PRIMARY KEY(turn_id,field,edited_at,verified));
                 """)
         with self.connect(readonly=True) as db:
             if [r[0] for r in db.execute("SELECT version FROM meta")] != [self.VERSION]:
@@ -497,6 +500,13 @@ class ArmsRegistry:
                 "guild_id": turn["guild_id"], "channel_id": turn["channel_id"], "question_channel_id": turn["question_channel_id"],
                 "message_id": turn["discord_message_id"], "answer_message_id": discord_message_id,
                 "pi_entry_id": turn["pi_entry_id"], "deleted": False, "recorded_at": now()}
+            for field in ("question", "answer"):
+                edit = db.execute("SELECT * FROM discussion_edits WHERE turn_id=? AND field=? ORDER BY edited_at DESC,verified DESC LIMIT 1",
+                    (turn["id"], field)).fetchone()
+                if edit:
+                    payload[field + "_edited_at"] = edit["edited_at"]
+                    payload[field + "_unavailable"] = not bool(edit["verified"])
+                    if edit["verified"]: payload[field] = edit["content"]
             for source_channel, source_message in ((turn["question_channel_id"], turn["discord_message_id"]), (turn["channel_id"], discord_message_id)):
                 if db.execute("SELECT 1 FROM events WHERE kind='discussion_message_deleted' AND subject=?",
                     (encode([turn["guild_id"], source_channel, source_message]),)).fetchone():

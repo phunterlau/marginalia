@@ -1,4 +1,5 @@
 import asyncio
+import sqlite3
 from types import SimpleNamespace
 
 import pytest
@@ -10,6 +11,45 @@ from test_discussion_worker import answered
 
 
 STAMP = "2026-09-07T13:00:00+00:00"
+
+
+@pytest.mark.parametrize("outcome", ["verified", "unavailable", "deleted"])
+def test_question_edit_before_answer_is_applied_at_confirmation(setup, outcome):
+    arms, spaces = setup
+    conv = arms.new_conversation("1", channel_id="21", guild_id="10", parent_channel_id="20")
+    turn = arms.enqueue(conv, "1", channel_id="21", guild_id="10", message_id="100",
+        prompt="Contrast directions", question_channel_id="20")
+    async def edit():
+        app = client(arms, author="999" if outcome == "unavailable" else "1")
+        if outcome == "unavailable":
+            with pytest.raises(PermissionError):
+                await observe(app, guild="10", channel="20", message="100", edited_at=STAMP)
+        else:
+            if outcome == "deleted":
+                arms.discussion_message_deleted(guild_id="10", channel_id="20", message_id="100")
+            await observe(app, guild="10", channel="20", message="100", edited_at=STAMP)
+            await observe(app, guild="10", channel="20", message="100", edited_at=STAMP)
+            app.rest.data.update(content="Obsolete content", edited_timestamp="2026-09-07T12:59:00+00:00")
+            await observe(app, guild="10", channel="20", message="100", edited_at=app.rest.data["edited_timestamp"])
+    asyncio.run(edit())
+    with arms.connect(readonly=True) as db:
+        assert db.execute("SELECT COUNT(*) FROM discussion_jobs").fetchone()[0] == 0
+        assert db.execute("SELECT COUNT(*) FROM discussion_edits").fetchone()[0] == (1 if outcome == "unavailable" else 2)
+        assert db.execute("SELECT prompt FROM turns WHERE id=?", (turn,)).fetchone()[0] == "Contrast directions"
+    arms.claim()
+    arms.save_answer(turn, "A recorded answer", "entry")
+    delivery = arms.begin_delivery(turn)
+    arms.confirm_delivery(delivery["delivery_id"], "200")
+    arms.confirm_delivery(delivery["delivery_id"], "200")
+    asyncio.run(drain(arms))
+    brain = spaces.open("project")
+    assert brain.search_discussions("Contrast")["items"] == []
+    assert brain.search_discussions("Obsolete")["items"] == []
+    hits = brain.search_discussions("geometry")["items"]
+    assert len(hits) == (1 if outcome == "verified" else 0)
+    if hits: assert "earlier version" in hits[0]["edit_notice"]
+    with arms.connect(readonly=True) as db:
+        assert db.execute("SELECT COUNT(*) FROM discussion_jobs").fetchone()[0] == 1
 
 
 class Access:
@@ -122,3 +162,16 @@ def test_attachment_answer_edit_indexes_file_and_preserves_original_pi_answer(se
     assert spaces.open("project").search_discussions("WRAPPER_NOT_THE_ANSWER")["items"] == []
     with arms.connect(readonly=True) as db:
         assert db.execute("SELECT answer FROM turns WHERE id=?", (turn,)).fetchone()[0] == "A recorded answer"
+
+
+def test_edit_ledger_and_projection_roll_back_together(setup):
+    arms, _ = setup
+    _, delivery = answered(arms)
+    arms.confirm_delivery(delivery["delivery_id"], "200")
+    with arms.connect() as db:
+        db.execute("CREATE TRIGGER fail_edit BEFORE INSERT ON discussion_jobs BEGIN SELECT RAISE(ABORT,'injected failure'); END")
+    with pytest.raises(sqlite3.IntegrityError, match="injected failure"):
+        asyncio.run(observe(client(arms), guild="10", channel="20", message="100", edited_at=STAMP))
+    with arms.connect(readonly=True) as db:
+        assert db.execute("SELECT COUNT(*) FROM discussion_edits").fetchone()[0] == 0
+        assert db.execute("SELECT COUNT(*) FROM discussion_jobs").fetchone()[0] == 1

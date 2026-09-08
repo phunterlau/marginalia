@@ -45,6 +45,10 @@ def migrate_v8_to_v9(root):
         "DROP TABLE old_discussion_jobs"))
 
 
+def migrate_v9_to_v10(root):
+    return _migrate(root, 9, 10, "CREATE TABLE discussion_edits(turn_id TEXT NOT NULL REFERENCES turns(id), field TEXT NOT NULL, edited_at TEXT NOT NULL, content TEXT, verified INTEGER NOT NULL, PRIMARY KEY(turn_id,field,edited_at,verified))")
+
+
 def _migrate(root, previous, current, statement):
     root = Path(root).resolve(strict=True)
     path = root / "arms.sqlite3"

@@ -21,7 +21,8 @@ Keep operational databases, source archives, backups, credentials and Pi session
 outside the checkout. `ArmsRegistry(..., create=True)` explicitly creates a new
 operational registry; ordinary opening never initializes or migrates a database.
 
-Registry version 9 adds revisioned discussion outbox entries; version 8 added the discussion projection outbox and original question
+Registry version 10 adds a tracked-message edit ledger, including edits before delivery;
+version 9 added revisioned discussion outbox entries; version 8 added the discussion projection outbox and original question
 channel; version 7 added immutable publication previews; version 6 added the automatic thread outbox; version 5 added pinned-paper
 thread checkpoints; version 4 added source submissions; version 3 added fork staging and
 version 2 added routing. For a version-1
@@ -31,7 +32,7 @@ worker lock or RUNNING claims, verifies a private SQLite backup, then migrates
 transactionally. It returns the backup path (or `None` if already current).
 Then run `migrate_v2_to_v3(root)`, `migrate_v3_to_v4(root)`, and
 `migrate_v4_to_v5(root)`, `migrate_v5_to_v6(root)`, `migrate_v6_to_v7(root)`, then
-`migrate_v7_to_v8(root)`, then `migrate_v8_to_v9(root)` from the same module in order, starting at the registry's
+`migrate_v7_to_v8(root)`, `migrate_v8_to_v9(root)`, then `migrate_v9_to_v10(root)` from the same module in order, starting at the registry's
 current version. Each step creates its own verified backup.
 Opening an old registry does not perform migrations automatically.
 
@@ -366,19 +367,20 @@ in the original space. Original turns, revision history and Pi context are not
 erased, and nothing is replayed to Pi. Offline deletion reconciliation remains
 pending; deletion is not a promise of provider erasure.
 
-Raw post-delivery message edit events queue an unavailable revision, then fetch
+Raw tracked-message edit events record an unavailable edit, then fetch
 only the exact tracked message after fresh access checks. Author/channel identity
 and edit timestamp must verify before the current content is reindexed. Question
 attachments use the existing bounded UTF-8 reader. Bot-answer attachments must be
 exactly one `answer.md`, with matching declared/actual length, valid UTF-8 and a
 200,000-byte maximum. Only Discord CDN attachment URLs are fetched, through the
 credential-free bounded downloader; delivery-wrapper text is never substituted.
-Discussion results label edited questions as later than the
-assistant's original answer. Duplicate/stale edits do not overwrite a newer
+Discussion results explain that the assistant answered an earlier question version.
+Duplicate/stale edits do not overwrite a newer
 revision, and edits cannot undo deletion. Failed fetches or oversized edits remove
 stale content from search after projection. Pi turns and session history are
-never rewritten or replayed. Edits before confirmed delivery and edits missed
-while offline still need reconciliation.
+never rewritten or replayed. Before delivery, edits are retained in an immutable
+ledger and applied atomically to the initial discussion projection at confirmation;
+deletion markers still take precedence. Edits missed while offline still need reconciliation.
 The delivery and permissions paths are mock-tested, not live-tested. There is no
 HTTP listener, installed daemon or LaunchAgent.
 

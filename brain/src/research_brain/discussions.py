@@ -93,7 +93,7 @@ def search(store, query, *, limit=5):
         items[-1]["answer_author"] = "assistant"
         items[-1]["question_edited_at"] = value.get("question_edited_at")
         items[-1]["answer_edited_at"] = value.get("answer_edited_at")
-        items[-1]["edit_notice"] = ("The question was edited after the answer; the assistant answered an earlier version."
+        items[-1]["edit_notice"] = ("The question changed after submission; the assistant answered an earlier version."
             if value.get("question_edited_at") else "The answer message was edited after delivery."
             if value.get("answer_edited_at") else None)
     return {"items": items, "more_available": len(rows) > limit,

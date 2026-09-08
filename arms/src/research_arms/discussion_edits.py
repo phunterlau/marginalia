@@ -1,4 +1,4 @@
-"""Verified post-delivery message edits; never modifies or replays a Pi turn."""
+"""Verified tracked-message edits; never modifies or replays a Pi turn."""
 from datetime import datetime, timezone
 import json
 
@@ -16,7 +16,7 @@ def timestamp(value):
 def targets(registry, guild, channel, message):
     with registry.connect(readonly=True) as db:
         return [dict(row) for row in db.execute(
-            "SELECT DISTINCT t.id,t.scope_json,p.discord_user,c.space_id,CASE WHEN t.question_channel_id=? AND t.discord_message_id=? THEN 'question' ELSE 'answer' END AS field FROM turns t JOIN conversations c ON c.id=t.conversation_id JOIN principals p ON p.principal=t.author JOIN outbox o ON o.turn_id=t.id JOIN discussion_jobs j ON j.turn_id=t.id WHERE c.guild_id IS ? AND ((t.question_channel_id=? AND t.discord_message_id=?) OR (c.channel_id=? AND o.discord_message_id=?))",
+            "SELECT DISTINCT t.id,t.scope_json,p.discord_user,c.space_id,CASE WHEN t.question_channel_id=? AND t.discord_message_id=? THEN 'question' ELSE 'answer' END AS field FROM turns t JOIN conversations c ON c.id=t.conversation_id JOIN principals p ON p.principal=t.author LEFT JOIN outbox o ON o.turn_id=t.id WHERE c.guild_id IS ? AND ((t.question_channel_id=? AND t.discord_message_id=?) OR (c.channel_id=? AND o.discord_message_id=?))",
             (channel, message, guild, channel, message, channel, message))]
 
 
@@ -28,8 +28,12 @@ def revise(registry, target, edited_at, content=None):
         raise ValueError("Edited content exceeds bounds")
     with registry.connect() as db:
         db.execute("BEGIN IMMEDIATE")
+        old = db.execute("SELECT * FROM discussion_edits WHERE turn_id=? AND field=? ORDER BY edited_at DESC,verified DESC LIMIT 1", (target["id"], field)).fetchone()
+        if old and (edited_at < old["edited_at"] or edited_at == old["edited_at"] and (content is None or old["verified"])):
+            return False
+        db.execute("INSERT INTO discussion_edits VALUES (?,?,?,?,?)", (target["id"], field, edited_at, content, int(content is not None)))
         row = db.execute("SELECT * FROM discussion_jobs WHERE turn_id=? ORDER BY CAST(json_extract(payload_json,'$.revision') AS INTEGER) DESC LIMIT 1", (target["id"],)).fetchone()
-        if row is None: return False
+        if row is None: return True  # Confirmation atomically reads this immutable edit ledger.
         payload = json.loads(row["payload_json"])
         if payload["deleted"]: return False
         previous = payload.get(field + "_edited_at")
