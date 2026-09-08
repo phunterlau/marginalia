@@ -48,10 +48,19 @@ that project's 🔥 signals from current members; personal views include only th
 actor's signals within their explicitly readable spaces. No signals alter Brain
 review states, create scientific memory, or dispatch model work.
 
-This is tested local infrastructure, not enabled Discord reaction handling yet.
-Authenticated raw-event wiring, reaction-list reconciliation, and an explicit
-approved deep-dive Run action remain pending. A stale scope cannot add a signal,
+Raw Gateway add/remove handlers now record these signals in serialized order,
+with fresh access checks for adds. Custom emojis, bot-self reactions and unknown
+targets are ignored. Guild/DM reaction intents are enabled; privileged message
+content and member intents remain disabled. A stale scope cannot add a signal,
 but withdrawal of a known signal may still remove it after revocation.
+
+`/interests` shows project-only 🔥 aggregates in shared channels and the caller's
+own signals in DMs. In a DM, `spaces:"project-a project-b"` explicitly includes
+signals from currently accessible shared spaces; a shared command cannot attach
+other spaces. Results contain references and scores, not message bodies.
+Reaction-list/reconnect reconciliation, remove-all events, and an explicit
+approved deep-dive Run action remain pending. Current event wiring is mock-tested,
+not live Discord validated. Missed events can leave signals stale until reconciliation.
 
 `/frontier thread_id:<Brain research-thread obj_ID>` presents current goals,
 uncertainties, pending experiments and linked research records. This is an

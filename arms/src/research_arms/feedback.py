@@ -4,8 +4,31 @@ import hashlib
 import json
 
 from .registry import encode, now, snowflake, Unavailable
+from research_brain.spaces import ContextScope
 
 EMOJIS = {"⭐": "bookmark", "🔥": "interest", "🔬": "deep_dive_pending", "❓": "clarification"}
+
+
+async def observe(client, payload, *, active):
+    """Called only for authenticated Gateway events, serialized by the client."""
+    if payload.emoji.id is not None or str(payload.emoji) not in EMOJIS: return False
+    actor, channel, message = str(payload.user_id), str(payload.channel_id), str(payload.message_id)
+    guild = str(payload.guild_id) if payload.guild_id else None
+    if client.user is None or actor == str(client.user.id): return False
+    if getattr(getattr(payload, "member", None), "bot", False): return False
+    space = target(client.registry, guild, channel, message)
+    if space is None: return False
+    with client.registry.connect(readonly=True) as db:
+        principal = client.registry._principal(db, actor)["principal"]
+    if active:
+        await client.access.authorize(actor, channel_id=channel, guild_id=guild, expected_space=space)
+        scope = client.registry.spaces.scope(principal, conversation_id="feedback", writable_space=space)
+    else:
+        # This token cannot add/read anything; it identifies only an existing
+        # actor's withdrawal after permissions may have been revoked.
+        scope = ContextScope(principal, "withdrawal-only", "feedback", space, (space,), -1)
+    return record(client.registry, scope, guild=guild, channel=channel, message=message,
+        emoji=str(payload.emoji), active=active)
 
 
 def target(registry, guild, channel, message):

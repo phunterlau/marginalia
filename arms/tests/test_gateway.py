@@ -29,11 +29,12 @@ def test_native_command_registration_is_offline_and_minimal(setup):
     arms, _ = setup
     async def run():
         client = ResearchGateway(arms, "/unused/pi")
-        assert {cmd.name for cmd in client.tree.get_commands()} == {"new", "resume", "fork", "session", "space", "ask", "stop", "paper", "card", "publish", "discussed", "recall", "compare", "brainstorm", "save", "frontier"}
+        assert {cmd.name for cmd in client.tree.get_commands()} == {"new", "resume", "fork", "session", "space", "ask", "stop", "paper", "card", "publish", "discussed", "recall", "compare", "brainstorm", "save", "frontier", "interests"}
         assert {cmd.name for cmd in client.tree.get_command("publish").commands} == {"prepare", "show", "consent", "approve", "cancel", "run"}
         assert {cmd.name for cmd in client.tree.get_command("card").commands} == {"show", "review"}
         assert {cmd.name for cmd in client.tree.get_command("paper").commands} == {"status", "brief", "cards", "evidence", "job", "approve", "add", "submission", "thread", "reconcile"}
         assert client.intents.guilds and not client.intents.message_content and not client.intents.members
+        assert client.intents.guild_reactions and client.intents.dm_reactions
         assert client.supervisor is None and client.pump is None
         await client.close()
     asyncio.run(run())
@@ -213,6 +214,23 @@ def test_brainstorm_creates_distinct_idempotent_conversation(setup):
                 assert db.execute("SELECT COUNT(*) FROM events WHERE kind='brainstorm_blind'").fetchone()[0] == 1
             with pytest.raises(ValueError):
                 await client.handle("brainstorm", "1", "30", None, "100", destination, question="Changed")
+        finally: await client.close()
+    asyncio.run(run())
+
+
+def test_interests_destination_and_explicit_private_attachments(setup):
+    arms, _ = setup
+    async def run():
+        client = ResearchGateway(arms, "/unused/pi")
+        try:
+            personal = await client.handle("interests", "1", "30", None, "100", {"space_id": "alice"}, spaces="project")
+            assert personal["audience"] == "personal:alice"
+            project = await client.handle("interests", "1", "20", "10", "101", {"space_id": "project"})
+            assert project["audience"] == "shared:project"
+            with pytest.raises(ValueError):
+                await client.handle("interests", "1", "20", "10", "102", {"space_id": "project"}, spaces="alice")
+            with pytest.raises(PermissionError):
+                await client.handle("interests", "2", "30", None, "103", {"space_id": "bob"}, spaces="alice")
         finally: await client.close()
     asyncio.run(run())
 

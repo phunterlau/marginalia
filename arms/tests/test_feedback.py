@@ -1,10 +1,13 @@
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta
 import json
+import asyncio
+from types import SimpleNamespace
 
 import pytest
 
 from research_arms.feedback import record, view
+from research_arms.feedback import observe
 from research_arms import Unavailable
 from test_registry import setup
 from test_discussion_worker import answered
@@ -50,3 +53,31 @@ def test_revoked_contributor_disappears_and_can_withdraw(setup):
     assert not view(arms, alice, shared=True)["items"]
     assert record(arms, bob, **args, active=False)
     with pytest.raises(PermissionError): record(arms, bob, **args, active=True)
+
+
+class Emoji:
+    def __init__(self, value="🔥", ident=None): self.value, self.id = value, ident
+    def __str__(self): return self.value
+
+
+def test_raw_events_are_scoped_and_removal_survives_revocation(setup):
+    arms, spaces = setup
+    _, delivery = answered(arms)
+    arms.confirm_delivery(delivery["delivery_id"], "200")
+    calls = []
+    class Access:
+        async def authorize(self, *args, **kwargs): calls.append((args, kwargs))
+    client = SimpleNamespace(registry=arms, access=Access(), user=SimpleNamespace(id=123))
+    event = SimpleNamespace(user_id=2, channel_id=21, message_id=200, guild_id=10, emoji=Emoji(), member=None)
+    async def run():
+        assert await observe(client, event, active=True)
+        assert not await observe(client, event, active=True)
+        spaces.set_membership("project", "bob", None)
+        assert await observe(client, event, active=False)
+        assert len(calls) == 2  # Withdrawal needs no newly granted access.
+        with pytest.raises(PermissionError): await observe(client, event, active=True)
+        event.message_id = 999
+        assert not await observe(client, event, active=True)
+        event.message_id, event.emoji = 200, Emoji(ident=42)
+        assert not await observe(client, event, active=True)
+    asyncio.run(run())

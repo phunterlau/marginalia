@@ -30,6 +30,7 @@ from .research_commands import recall as research_recall
 from .research_commands import compare as research_compare
 from .research_commands import frontier as research_frontier
 from .saves import save_excerpt
+from .feedback import observe as observe_feedback, view as feedback_view
 from .discussion_edits import observe as observe_discussion_edit
 from .forks import fork_conversation
 from .registry import snowflake
@@ -44,6 +45,8 @@ class ResearchGateway(discord.Client):
         intents.guilds = True
         intents.guild_messages = True
         intents.dm_messages = True
+        intents.guild_reactions = True
+        intents.dm_reactions = True
         # Slash commands work without privileged message-content/member intents.
         super().__init__(intents=intents, allowed_mentions=discord.AllowedMentions.none())
         self.registry, self.pi_executable = registry, pi_executable
@@ -65,10 +68,14 @@ class ResearchGateway(discord.Client):
         self.discussion_worker = self.discussion_task = None
         self.reconciler = DiscussionReconciler(self)
         self.reconcile_task = None
+        self.feedback_lock = asyncio.Lock()
         self.tree = app_commands.CommandTree(self)
         self._commands()
 
     def _commands(self):
+        @self.tree.command(name="interests", description="Show project interest or your personal reaction signals; no model work")
+        async def interests(interaction: discord.Interaction, spaces: str = ""):
+            await self.execute(interaction, "interests", spaces=spaces)
         @self.tree.command(name="frontier", description="Inspect a Brain research thread, including unreviewed ideas and proposed tests")
         async def frontier(interaction: discord.Interaction, thread_id: str, after_id: str = ""):
             await self.execute(interaction, "frontier", thread_id=thread_id, after_id=after_id)
@@ -205,6 +212,20 @@ class ResearchGateway(discord.Client):
         self.gateway_online = True
         self.reconciler.restart()
 
+    async def _feedback(self, payload, active):
+        if self.access is None: return
+        async with self.feedback_lock:
+            try: await observe_feedback(self, payload, active=active)
+            except Exception:
+                # No channel feedback or private metadata on failed authorization.
+                pass
+
+    async def on_raw_reaction_add(self, payload):
+        await self._feedback(payload, True)
+
+    async def on_raw_reaction_remove(self, payload):
+        await self._feedback(payload, False)
+
     async def on_raw_message_delete(self, payload):
         self.registry.discussion_message_deleted(guild_id=str(payload.guild_id) if payload.guild_id else None,
             channel_id=str(payload.channel_id), message_id=str(payload.message_id))
@@ -320,6 +341,14 @@ class ResearchGateway(discord.Client):
 
     async def handle(self, command, actor, channel, guild, message_id, destination, **options):
         """Internal authenticated handler; never expose caller-supplied destination data."""
+        if command == "interests":
+            attached = options.get("spaces", "")
+            if not isinstance(attached, str) or len(attached) > 1300 or len(attached.split()) > 16 or (guild is not None and attached.strip()):
+                raise ValueError("Shared interest views cannot attach other spaces")
+            with self.registry.connect(readonly=True) as db:
+                principal = self.registry._principal(db, actor)["principal"]
+            scope = self.registry.spaces.scope(principal, conversation_id="feedback-view", writable_space=destination["space_id"], read_spaces=tuple(attached.split()))
+            return feedback_view(self.registry, scope, shared=guild is not None)
         if command == "frontier":
             return await research_frontier(self.registry, actor, destination, options["thread_id"], after_id=options.get("after_id", ""))
         if command == "save":
