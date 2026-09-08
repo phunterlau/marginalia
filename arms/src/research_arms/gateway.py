@@ -34,7 +34,7 @@ from .deep_dives import preview as preview_deep_dive, run as run_deep_dive
 from .feedback import observe as observe_feedback, view as feedback_view, clear as clear_feedback
 from .feedback_reconcile import reconcile as reconcile_feedback, FeedbackReconciler
 from .discussion_edits import observe as observe_discussion_edit
-from .forks import fork_conversation
+from .forks import fork_conversation, recover_fork
 from .registry import snowflake
 from research_brain.jobs import SpendingLimits
 
@@ -77,6 +77,9 @@ class ResearchGateway(discord.Client):
         self._commands()
 
     def _commands(self):
+        @self.tree.command(name="fork-recover", description="Adopt an exact verified partial fork; never recreate or rewrite sessions")
+        async def fork_recover(interaction: discord.Interaction, request_id: str):
+            await self.execute(interaction, "fork_recover", request_id=request_id)
         @self.tree.command(name="deep-dive", description="Preview or approve a pending deep dive; reactions alone never run it")
         async def deep_dive(interaction: discord.Interaction, message_id: str, confirm: bool = False, digest: str | None = None):
             await self.execute(interaction, "deep_dive", message_id=message_id, confirm=confirm, digest=digest)
@@ -363,10 +366,18 @@ class ResearchGateway(discord.Client):
                     "Invalid or oversized request. Use an exact conversation ID and at most 20,000 characters of UTF-8 text.")
         except Exception:
             text = "Research operation unavailable. Check your selected session, access, or backend recovery status."
+        if command == "fork":
+            text += f" Fork recovery request ID: {interaction.id}. Use /fork-recover only after any interrupted worker is stopped."
         await interaction.edit_original_response(content=text, allowed_mentions=discord.AllowedMentions.none())
 
     async def handle(self, command, actor, channel, guild, message_id, destination, **options):
         """Internal authenticated handler; never expose caller-supplied destination data."""
+        if command == "fork_recover":
+            async def authorize():
+                await self.access.authorize(actor, channel_id=channel, guild_id=guild, expected_space=destination["space_id"])
+            conversation = await recover_fork(self.supervisor, request_id=options["request_id"], actor=actor,
+                channel_id=channel, guild_id=guild, authorize=authorize)
+            return {"conversation_id": conversation, "notice": "Verified existing fork recovered. Use /resume to select it. No model call or session rewrite occurred."}
         if command == "deep_dive":
             async with self.feedback_lock:
                 if options.get("confirm", False):

@@ -4,7 +4,55 @@ import re
 import uuid
 
 from .registry import Unavailable, encode, now, visibility
-from .session_fork import fork_completed_session
+from .session_fork import fork_completed_session, verify_completed_fork
+
+
+async def recover_fork(supervisor, *, request_id, actor, channel_id, guild_id=None, authorize=None):
+    """Adopt one verified existing candidate, without creating or rewriting files."""
+    if not isinstance(request_id, str) or not re.fullmatch(r"[A-Za-z0-9_-]{1,100}", request_id):
+        raise ValueError("Invalid fork request ID")
+    registry = supervisor.registry
+    async with supervisor.lock:
+        if supervisor.closed: raise Unavailable()
+        if authorize is not None: await authorize()
+        with registry.connect(readonly=True) as db:
+            job = db.execute("SELECT * FROM session_forks WHERE request_id=? AND actor=?", (request_id, actor)).fetchone()
+            if job is None or job["state"] not in {"COMPLETE", "NEEDS_ATTENTION"}: raise Unavailable()
+            job = dict(job)
+            source, _ = registry._authorized(db, job["source_id"], actor, channel_id, guild_id,
+                statuses=("OPEN", "STOPPED", "NEEDS_ATTENTION"))
+            registry._authorized(db, job["target_id"], actor, channel_id, guild_id,
+                statuses=("OPEN",) if job["state"] == "COMPLETE" else ("NEEDS_ATTENTION",))
+            if job["state"] == "COMPLETE": return job["target_id"]
+            if db.execute("SELECT 1 FROM turns WHERE conversation_id IN (?,?) AND status='RUNNING'", (job["source_id"], job["target_id"])).fetchone():
+                raise ValueError("Stop active work before fork recovery")
+            entry = db.execute("SELECT pi_entry_id FROM turns WHERE id=? AND conversation_id=? AND status='ANSWERED'", (job["turn_id"], job["source_id"])).fetchone()
+            if entry is None: raise Unavailable()
+        await supervisor._retire(job["source_id"])
+        await supervisor._retire(job["target_id"])
+        base = registry.root / "sessions" / hashlib.sha256(source["space_id"].encode()).hexdigest()
+        source_dir, target_dir = base / job["source_id"], base / job["target_id"]
+        if any(path.resolve() != path for path in (base, source_dir, target_dir)):
+            raise ValueError("Unsafe session partition")
+        sources = list(source_dir.glob("*_" + source["pi_session_id"] + ".jsonl"))
+        candidates = list(target_dir.glob("*.jsonl"))
+        if len(sources) != 1 or len(candidates) != 1: raise ValueError("Exactly one source and candidate session required")
+        result = verify_completed_fork(source=sources[0], candidate=candidates[0],
+            session_id=source["pi_session_id"], entry_id=entry[0])
+        if not candidates[0].name.endswith("_" + result["session_id"] + ".jsonl"):
+            raise ValueError("Candidate session filename differs")
+        if authorize is not None: await authorize()
+        with registry.connect() as db:
+            db.execute("BEGIN IMMEDIATE")
+            registry._authorized(db, job["source_id"], actor, channel_id, guild_id,
+                statuses=("OPEN", "STOPPED", "NEEDS_ATTENTION"))
+            registry._authorized(db, job["target_id"], actor, channel_id, guild_id, statuses=("NEEDS_ATTENTION",))
+            if db.execute("SELECT state FROM session_forks WHERE request_id=?", (request_id,)).fetchone()[0] != "NEEDS_ATTENTION":
+                raise Unavailable()
+            db.execute("UPDATE conversations SET pi_session_id=?,status='OPEN' WHERE id=?", (result["session_id"], job["target_id"]))
+            db.execute("UPDATE session_forks SET state='COMPLETE' WHERE request_id=?", (request_id,))
+            db.execute("INSERT INTO events(kind,subject,at) VALUES ('fork_recovered',?,?)", (job["target_id"], now()))
+        return job["target_id"]
 
 
 def prepare(registry, source_id, turn_id, actor, *, channel_id, guild_id, request_id, name):

@@ -9,7 +9,7 @@ import uuid
 import pytest
 
 from research_arms import Unavailable
-from research_arms.forks import fork_conversation
+from research_arms.forks import fork_conversation, recover_fork
 from research_arms.worker import Supervisor
 from test_registry import setup, shared, turn
 
@@ -91,6 +91,47 @@ def test_fork_rejects_wrong_destination_before_session_access(setup):
                     channel_id="30", request_id="x", node="/unused/node", sdk_module="/unused/sdk")
             with arms.connect(readonly=True) as db:
                 assert db.execute("SELECT COUNT(*) FROM session_forks").fetchone()[0] == 0
+        finally: await supervisor.close()
+    asyncio.run(run())
+
+
+@pytest.mark.parametrize("tamper", [False, True])
+def test_recover_verified_partial_fork_without_rewriting_files(setup, tamper):
+    arms, _ = setup
+    conv, ident = source_fixture(arms)
+    files = []
+    async def factory(**kwargs):
+        source = kwargs["source"]
+        header = {"type": "session", "version": 3, "id": kwargs["session_id"], "timestamp": "2026-09-07", "cwd": "/synthetic"}
+        entry = {"type": "message", "id": "entry", "parentId": None, "message": {"role": "assistant", "stopReason": "stop", "content": "Approved answer"}}
+        source.write_text(json.dumps(header) + "\n" + json.dumps(entry) + "\n")
+        destination = kwargs["destination"]
+        destination.mkdir()
+        child_id = str(uuid.uuid4())
+        candidate = destination / ("synthetic_" + child_id + ".jsonl")
+        child_header = {**header, "id": child_id, "parentSession": str(source)}
+        if tamper: entry["message"]["content"] = "CONTAMINATED_CANARY"
+        candidate.write_text(json.dumps(child_header) + "\n" + json.dumps(entry) + "\n")
+        files.extend([source, candidate])
+        raise OSError("Lost completion checkpoint")
+    async def run():
+        supervisor = Supervisor(arms, "/unused/pi")
+        try:
+            with pytest.raises(OSError):
+                await fork_conversation(supervisor, source_id=conv, turn_id=ident, actor="1", channel_id="21", guild_id="10",
+                    request_id="recover1", node="/unused/node", sdk_module="/unused/sdk", fork_factory=factory)
+            before = [path.read_bytes() for path in files]
+            args = {"request_id": "recover1", "actor": "1", "channel_id": "21", "guild_id": "10"}
+            with pytest.raises(Unavailable): await recover_fork(supervisor, **{**args, "actor": "2"})
+            if tamper:
+                with pytest.raises(ValueError, match="content differs"): await recover_fork(supervisor, **args)
+            else:
+                child = await recover_fork(supervisor, **args)
+                assert await recover_fork(supervisor, **args) == child
+            assert [path.read_bytes() for path in files] == before
+            with arms.connect(readonly=True) as db:
+                assert db.execute("SELECT state FROM session_forks").fetchone()[0] == ("NEEDS_ATTENTION" if tamper else "COMPLETE")
+                assert db.execute("SELECT COUNT(*) FROM events WHERE kind='fork_recovered'").fetchone()[0] == (0 if tamper else 1)
         finally: await supervisor.close()
     asyncio.run(run())
 
