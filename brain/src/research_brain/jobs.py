@@ -59,9 +59,12 @@ class BudgetExceeded(JobStopped):
 
 
 class AbsorptionJobs:
-    def __init__(self, brain: Brain, space_id: str, *, create: bool = False):
+    def __init__(self, brain: Brain, space_id: str, *, create: bool = False,
+                 authorization_context: dict | None = None, authorization_check: Callable | None = None):
         self.brain = brain
         self.space_id = identifier(space_id)
+        self.authorization_context = json.loads(json.dumps(authorization_context)) if authorization_context is not None else None
+        self.authorization_check = authorization_check
         self.path = brain.root / "jobs.sqlite3"
         if create:
             with self.connect(create=True) as db:
@@ -130,7 +133,7 @@ class AbsorptionJobs:
         tasks = ["methods"] + (["math"] if any(b["block_type"] == "equation" for b in blocks) else [])
         previews = [asdict(self.brain.extractor.extract(task, document_id, compilation_id=compilation_id).plan) for task in tasks]
         source_targets = self.brain.store.embedding_targets(document_id, compilation_id=compilation_id, object_ids=[])
-        return {
+        plan = {
             "version": "absorption-v1", "space_id": self.space_id,
             "document_id": document_id, "compilation_id": compilation_id,
             "source": dict(source), "block_digest": digest(blocks),
@@ -148,6 +151,21 @@ class AbsorptionJobs:
                         "unknown_license": source["license_uri"] is None,
                         "parser": source["parser_version"], "diagnostics": json.loads(source["diagnostics_json"])},
         }
+
+        if self.authorization_context is not None:
+            plan["authorization_context"] = self.authorization_context
+            self._authorize(plan)
+        return plan
+
+    def _authorize(self, plan):
+        context = plan.get("authorization_context")
+        if context is not None:
+            if self.authorization_check is None:
+                raise JobStopped("Scoped job requires an authorization-aware worker")
+            try:
+                self.authorization_check(context)
+            except Exception:
+                raise JobStopped("Job authorization changed; refusing dispatch") from None
 
     def absorb(self, url: str, *, limits: SpendingLimits | None = None) -> dict:
         identity = arxiv_identity(url)
@@ -206,6 +224,7 @@ class AbsorptionJobs:
             job = self._get(db, job_id)
             if job["plan_digest"] != plan_digest or digest(json.loads(job["plan_json"])) != plan_digest:
                 raise ValueError("Stale or invalid plan digest")
+            self._authorize(json.loads(job["plan_json"]))
             if job["status"] != "WAITING_APPROVAL":
                 raise ValueError("Job is not waiting for approval")
             db.execute("UPDATE jobs SET status='QUEUED',updated_at=? WHERE id=?", (utc_now(), job_id))
@@ -263,6 +282,7 @@ class AbsorptionJobs:
             job = self._get(db, job_id)
             if job["status"] != "RUNNING" or job["claimed_by"] != claimant or job["cancel_requested"]:
                 raise JobStopped("Job cancelled or claim unavailable")
+            self._authorize(json.loads(job["plan_json"]))
             limits = json.loads(job["plan_json"])["limits"]
             if job["calls_reserved"] + 1 > limits["max_calls"] or job["tokens_reserved"] + tokens > limits["max_reserved_tokens"]:
                 raise BudgetExceeded("Approved call/token ceiling exhausted; no request dispatched")
@@ -305,6 +325,7 @@ class AbsorptionJobs:
             job = self.show(job_id)
             plan = job["plan"]
             try:
+                self._authorize(plan)
                 if digest(plan) != job["plan_digest"] or plan["space_id"] != self.space_id or plan["prompt_version"] != extraction.PROMPT_VERSION:
                     raise JobStopped("Plan configuration changed; new approval required")
                 if plan.get("embedding_version") != embeddings.EMBEDDING_VERSION:
@@ -318,6 +339,7 @@ class AbsorptionJobs:
                 if digest(blocks) != plan["block_digest"]:
                     raise JobStopped("Approved compilation changed")
                 self._execute(job_id, claimant, plan, extraction_factory, embedding_factory)
+                self._authorize(plan)
                 with self.connect() as db:
                     db.execute("UPDATE jobs SET status=CASE WHEN cancel_requested THEN 'CANCELLED' ELSE 'COMPLETE' END,updated_at=? WHERE id=?", (utc_now(), job_id))
                     self._event(db, job_id, "processing_finished")
@@ -334,6 +356,7 @@ class AbsorptionJobs:
     def _execute(self, job_id, claimant, plan, extraction_factory, embedding_factory):
         card_ids = []
         for task in plan["tasks"]:
+            self._authorize(plan)
             with self.connect() as db:
                 if self._get(db, job_id)["cancel_requested"]:
                     raise JobStopped("Job cancelled")

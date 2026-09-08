@@ -66,6 +66,45 @@ def test_stale_or_non_live_approval_fails(jobs):
     assert jobs.show(job["id"])["status"] == "WAITING_APPROVAL"
 
 
+def test_scoped_plan_requires_guard_even_when_reopened_locally(jobs):
+    context = {"audience": "personal:personal", "policy_version": 7}
+    guarded = AbsorptionJobs(jobs.brain, "personal", authorization_context=context,
+                            authorization_check=lambda value: None)
+    job = guarded.enqueue(jobs.fixture_document, jobs.fixture_compilation)
+    assert job["plan"]["authorization_context"] == context
+    assert job["plan_digest"] != enqueue(jobs)["plan_digest"]
+    with pytest.raises(JobStopped): jobs.approve(job["id"], job["plan_digest"], live=True)
+    guarded.approve(job["id"], job["plan_digest"], live=True)
+    result = work(jobs)
+    assert result["status"] == "FAILED" and result["calls_reserved"] == 0
+
+
+def test_revoked_scoped_job_cannot_dispatch(jobs):
+    allowed = [True]
+    def check(context):
+        if not allowed[0]: raise PermissionError()
+    guarded = AbsorptionJobs(jobs.brain, "personal", authorization_context={"policy": 7}, authorization_check=check)
+    job = guarded.enqueue(jobs.fixture_document, jobs.fixture_compilation)
+    guarded.approve(job["id"], job["plan_digest"], live=True)
+    allowed[0] = False
+    result = work(guarded)
+    assert result["status"] == "FAILED" and result["calls_reserved"] == 0
+
+
+def test_authorization_rechecked_for_each_dispatch(jobs):
+    allowed = [True]
+    def check(context):
+        if not allowed[0]: raise PermissionError()
+    guarded = AbsorptionJobs(jobs.brain, "personal", authorization_context={"policy": 7}, authorization_check=check)
+    job = guarded.enqueue(jobs.fixture_document, jobs.fixture_compilation)
+    with guarded.connect() as db:
+        db.execute("UPDATE jobs SET status='RUNNING',claimed_by='synthetic' WHERE id=?", (job["id"],))
+    guarded._dispatch(job["id"], "synthetic", "methods", {"synthetic": True}, 0)
+    allowed[0] = False
+    with pytest.raises(JobStopped): guarded._dispatch(job["id"], "synthetic", "methods", {"synthetic": True}, 0)
+    assert guarded.show(job["id"])["calls_reserved"] == 1
+
+
 def test_duplicates_and_atomic_claim(jobs):
     with ThreadPoolExecutor(max_workers=2) as pool:
         results = list(pool.map(lambda _: enqueue(jobs), range(2)))

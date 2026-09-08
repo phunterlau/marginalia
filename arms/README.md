@@ -197,6 +197,15 @@ includes its locator and explicit text omission information. Larger command
 results are attached as JSON. `/paper add`, job approval and starter threads are
 not yet connected.
 
+`ScopedAbsorption` is the maintainer-only service foundation for those mutations.
+It binds an immutable authorization context into the paid-plan digest and checks
+it again before approval and provider dispatch. A plain authorization-unaware
+worker refuses scoped jobs. Shared members cannot submit or approve absorption;
+personal operations require the owner. Submission requires explicit spending
+limits and does not itself run model work. Gateway mutation commands and durable
+source-submission orchestration remain pending; no live scoped absorption has
+been performed through this service.
+
 This is a partial pilot, **not a validated live deployment**. Paper-thread
 routing, Discord fork/reconciliation controls, publication consent,
 scientific reviews, discussion search and reactions still need integration.
