@@ -342,6 +342,14 @@ the current channel/DM; private history cannot be branched into a shared channel
 Discord access is refreshed before branching and before activation. A transport
 permission change quarantines the partial fork. The interaction ID makes retries
 idempotent. User-facing partial-fork reconciliation is still pending.
+The trusted local `session_fork.verify_completed_fork` primitive can now verify an
+existing SDK-created candidate without opening it through the SDK or rewriting
+either file. It checks exact source/session identity, the completed assistant
+entry's parent chain, all retained content, rechained labels, and absence of
+future entries. Files are bounded to 20 MiB; unknown session versions fail closed
+rather than being implicitly migrated. Native installed-Pi tests cover labeled
+and unlabeled forks and altered-content rejection. This verifier does not itself
+activate a quarantined conversation; authorized adoption remains separate work.
 
 Branching uses the local Node executable and `index.js` beside the resolved Pi
 executable by default. Backend administrators can override these with
