@@ -4,8 +4,26 @@ import json
 import pytest
 
 from research_arms import Unavailable
-from research_arms.discord_io import assemble_question, answer_payload, attachment_url, DiscordSender
+from research_arms.discord_io import assemble_question, answer_payload, attachment_url, DiscordSender, read_answer_message
 from test_registry import setup, shared, turn
+
+
+def test_answer_file_uses_exact_bytes_not_delivery_wrapper():
+    data = ("Research answer " * 10000).encode()
+    async def chunks(url):
+        yield data[:80000]
+        yield data[80000:]
+    message = {"content": "WRAPPER_NOT_THE_ANSWER", "attachments": [
+        {"filename": "answer.md", "size": len(data), "url": "https://cdn.discordapp.com/attachments/1/2/answer.md"}]}
+    assert asyncio.run(read_answer_message(message, chunks)) == data.decode()
+
+
+@pytest.mark.parametrize("data,size,name", [(b"x" * 200001, 200000, "answer.md"), (b"x", 2, "answer.md"),
+    (b"\xff", 1, "answer.md"), (b"\x00", 1, "answer.md"), (b"x", 1, "other.md")])
+def test_invalid_answer_files_fail_closed(data, size, name):
+    async def chunks(url): yield data
+    message = {"attachments": [{"filename": name, "size": size, "url": "https://cdn.discordapp.com/attachments/1/2/answer.md"}]}
+    with pytest.raises(ValueError): asyncio.run(read_answer_message(message, chunks))
 
 
 def attachment(**changes):

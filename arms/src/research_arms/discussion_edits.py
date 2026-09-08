@@ -2,7 +2,7 @@
 from datetime import datetime, timezone
 import json
 
-from .discord_io import assemble_question, download_chunks
+from .discord_io import assemble_question, download_chunks, read_answer_message
 from .registry import Unavailable, encode, now, snowflake
 
 
@@ -72,9 +72,6 @@ async def observe(client, *, guild, channel, message, edited_at):
             content = content.replace(f"<@{client.user.id}>", "").replace(f"<@!{client.user.id}>", "").strip()
             content = await assemble_question(content, data.get("attachments", []), download_chunks)
         else:
-            # Attachment-backed answers need separate reconciliation; do not
-            # substitute the short delivery wrapper for the original answer.
-            if data.get("attachments"): raise Unavailable()
-            content = data.get("content")
+            content = await read_answer_message(data, download_chunks)
         await client.access.authorize(target["discord_user"], channel_id=channel, guild_id=guild, expected_space=target["space_id"])
         revise(client.registry, target, latest, content)

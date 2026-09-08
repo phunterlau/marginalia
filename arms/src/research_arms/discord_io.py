@@ -16,11 +16,11 @@ MAX_QUESTION = 20_000
 MAX_ATTACHMENT_BYTES = 80_000
 
 
-def attachment_url(attachment):
+def attachment_url(attachment, *, max_bytes=MAX_ATTACHMENT_BYTES):
     name, url, size = attachment["filename"], attachment["url"], attachment["size"]
     if not isinstance(name, str) or len(name) > 255 or not name.lower().endswith((".txt", ".md")):
         raise ValueError("Only UTF-8 .txt and .md questions are supported")
-    if type(size) is not int or not 0 <= size <= MAX_ATTACHMENT_BYTES:
+    if type(size) is not int or not 0 <= size <= max_bytes:
         raise ValueError("Attachment exceeds byte limit")
     if not isinstance(url, str) or len(url) > 4096:
         raise ValueError("Invalid attachment URL")
@@ -69,6 +69,29 @@ async def download_chunks(url):
                 raise ValueError("Attachment download unavailable")
             async for chunk in response.aiter_bytes(8192):
                 yield chunk
+
+
+async def read_answer_message(message, chunks=download_chunks):
+    """After bot-author verification, read our bounded answer.md, not its wrapper."""
+    attachments = message.get("attachments", [])
+    if not isinstance(attachments, list): raise ValueError("Invalid answer attachments")
+    if attachments:
+        if len(attachments) != 1 or not isinstance(attachments[0], dict) or attachments[0].get("filename") != "answer.md":
+            raise ValueError("Expected exactly one answer.md attachment")
+        item = attachments[0]
+        url = attachment_url(item, max_bytes=200000)
+        data = bytearray()
+        async for chunk in chunks(url):
+            data.extend(chunk)
+            if len(data) > 200000: raise ValueError("Answer exceeds byte bound")
+        if len(data) != item["size"]: raise ValueError("Answer attachment length mismatch")
+        try: content = data.decode("utf-8", errors="strict")
+        except UnicodeDecodeError: raise ValueError("Answer attachment must be UTF-8") from None
+    else:
+        content = message.get("content")
+    if not isinstance(content, str) or not content.strip() or "\x00" in content or len(content.encode()) > 200000:
+        raise ValueError("Invalid answer content")
+    return content
 
 
 def answer_payload(answer, nonce):

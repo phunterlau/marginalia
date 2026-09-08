@@ -369,14 +369,16 @@ pending; deletion is not a promise of provider erasure.
 Raw post-delivery message edit events queue an unavailable revision, then fetch
 only the exact tracked message after fresh access checks. Author/channel identity
 and edit timestamp must verify before the current content is reindexed. Question
-attachments use the existing bounded UTF-8 reader. Bot-answer attachments are not
-substituted with their short delivery wrapper: they stay unavailable pending
-reconciliation. Discussion results label edited questions as later than the
+attachments use the existing bounded UTF-8 reader. Bot-answer attachments must be
+exactly one `answer.md`, with matching declared/actual length, valid UTF-8 and a
+200,000-byte maximum. Only Discord CDN attachment URLs are fetched, through the
+credential-free bounded downloader; delivery-wrapper text is never substituted.
+Discussion results label edited questions as later than the
 assistant's original answer. Duplicate/stale edits do not overwrite a newer
 revision, and edits cannot undo deletion. Failed fetches or oversized edits remove
 stale content from search after projection. Pi turns and session history are
-never rewritten or replayed. Edits before confirmed delivery, attachment-backed
-answer edits and edits missed while offline still need reconciliation.
+never rewritten or replayed. Edits before confirmed delivery and edits missed
+while offline still need reconciliation.
 The delivery and permissions paths are mock-tested, not live-tested. There is no
 HTTP listener, installed daemon or LaunchAgent.
 

@@ -100,3 +100,25 @@ def test_stale_edit_cannot_replace_newer_verified_revision(setup):
     asyncio.run(run())
     assert spaces.open("project").search_discussions("Obsolete")["items"] == []
     assert len(spaces.open("project").search_discussions("geometry")["items"]) == 1
+
+
+def test_attachment_answer_edit_indexes_file_and_preserves_original_pi_answer(setup, monkeypatch):
+    from research_arms import discussion_edits
+    arms, spaces = setup
+    turn, delivery = answered(arms)
+    arms.confirm_delivery(delivery["delivery_id"], "200")
+    data = b"Revised answer about eigenvectors"
+    async def chunks(url): yield data
+    monkeypatch.setattr(discussion_edits, "download_chunks", chunks)
+    async def run():
+        app = client(arms, author="123", content="WRAPPER_NOT_THE_ANSWER", attachments=[
+            {"filename": "answer.md", "size": len(data), "url": "https://cdn.discordapp.com/attachments/21/42/answer.md"}])
+        app.rest.data.update(id="200", channel_id="21")
+        await observe(app, guild="10", channel="21", message="200", edited_at=STAMP)
+        await drain(arms)
+    asyncio.run(run())
+    result = spaces.open("project").search_discussions("eigenvectors")["items"][0]
+    assert result["answer"] == data.decode() and result["answer_edited_at"]
+    assert spaces.open("project").search_discussions("WRAPPER_NOT_THE_ANSWER")["items"] == []
+    with arms.connect(readonly=True) as db:
+        assert db.execute("SELECT answer FROM turns WHERE id=?", (turn,)).fetchone()[0] == "A recorded answer"
