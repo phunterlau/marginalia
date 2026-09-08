@@ -110,3 +110,23 @@ def test_deleted_bot_answer_removes_the_exchange(setup):
     assert arms.discussion_message_deleted(guild_id="10", channel_id="21", message_id="200") == 1
     asyncio.run(worker.work_once())
     assert spaces.open("project").search_discussions("recorded")["items"] == []
+
+
+def test_interaction_question_has_no_fake_message_link_or_deletion_target(setup):
+    from research_arms.discussion_edits import targets
+    arms, spaces = setup
+    conv = arms.new_conversation("1", channel_id="30")
+    turn = arms.enqueue(conv, "1", channel_id="30", message_id="100", prompt="Slash question",
+        question_is_message=False)
+    with pytest.raises(ValueError, match="transport"):
+        arms.enqueue(conv, "1", channel_id="30", message_id="100", prompt="Slash question")
+    assert targets(arms, None, "30", "100") == []
+    assert arms.discussion_message_deleted(guild_id=None, channel_id="30", message_id="100") == 0
+    arms.claim()
+    arms.save_answer(turn, "A recorded answer", "entry")
+    delivery = arms.begin_delivery(turn)
+    arms.confirm_delivery(delivery["delivery_id"], "200")
+    asyncio.run(DiscussionWorker(arms, Access()).work_once())
+    hit = spaces.open("alice").search_discussions("Slash")["items"][0]
+    assert hit["question_url"] is None
+    assert hit["answer_url"].endswith("/30/200")

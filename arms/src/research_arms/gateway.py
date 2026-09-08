@@ -383,7 +383,7 @@ class ResearchGateway(discord.Client):
                     if old["prompt"] != question: raise ValueError("Duplicate question changed")
                     return {"queued_turn": old["id"], "conversation_id": old["conversation_id"]}
             ident = self.registry.enqueue(selected["conversation_id"], actor, channel_id=channel,
-                guild_id=guild, message_id=message_id, prompt=question)
+                guild_id=guild, message_id=message_id, prompt=question, question_is_message=False)
             return {"queued_turn": ident, **selected}
         if command == "stop":
             return await self.supervisor.stop(selected["conversation_id"], actor, channel_id=channel, guild_id=guild)

@@ -401,6 +401,13 @@ stale content from search after projection. Pi turns and session history are
 never rewritten or replayed. Before delivery, edits are retained in an immutable
 ledger and applied atomically to the initial discussion projection at confirmation;
 deletion markers still take precedence. Edits missed while offline still need reconciliation.
+New turns also record whether their question came from a Discord message or a
+slash-command interaction. An interaction ID is not a message ID: `/ask` questions
+remain searchable but have no source-message URL and cannot be targeted by raw
+message edits/deletions. Their delivered answers still have ordinary message links.
+Transport markers are written atomically with the turn; historical records are
+not guessed or rewritten. Future reconnect scans must only fetch question IDs
+with an explicit message marker, not legacy unknown or interaction IDs.
 The delivery and permissions paths are mock-tested, not live-tested. There is no
 HTTP listener, installed daemon or LaunchAgent.
 

@@ -215,10 +215,13 @@ class ArmsRegistry:
         return row, scope
 
     def enqueue(self, conversation_id, discord_user, *, channel_id, guild_id=None,
-                message_id, prompt, anchor_turn_id=None, question_channel_id=None):
+                message_id, prompt, anchor_turn_id=None, question_channel_id=None, question_is_message=True):
         """Only authenticated, bot-directed turns should reach this method."""
         snowflake(message_id)
-        question_channel_id = snowflake(question_channel_id or channel_id)
+        if type(question_is_message) is not bool: raise ValueError("Invalid question transport")
+        if not question_is_message and question_channel_id is not None:
+            raise ValueError("Interaction questions have no source-message channel")
+        question_channel_id = snowflake(question_channel_id or channel_id) if question_is_message else None
         if not isinstance(prompt, str) or not prompt.strip() or len(prompt) > 20_000:
             raise ValueError("Question must contain 1..20000 characters")
         with self.connect() as db:
@@ -227,6 +230,9 @@ class ArmsRegistry:
             existing = db.execute("SELECT * FROM turns WHERE conversation_id=? AND discord_message_id=?",
                                   (conversation_id, message_id)).fetchone()
             if existing:
+                transport = db.execute("SELECT kind FROM events WHERE subject=? AND kind IN ('question_message','question_interaction')", (existing["id"],)).fetchone()
+                if transport and transport[0] != ("question_message" if question_is_message else "question_interaction"):
+                    raise ValueError("Duplicate question transport changed")
                 if (existing["author"] != scope.principal or existing["prompt"] != prompt or existing["anchor_turn_id"] != anchor_turn_id
                         or existing["question_channel_id"] not in (None, question_channel_id)):
                     raise ValueError("Duplicate message changed; explicit edit handling required")
@@ -239,6 +245,8 @@ class ArmsRegistry:
             turn = "turn_" + uuid.uuid4().hex
             db.execute("INSERT INTO turns(id,conversation_id,discord_message_id,author,scope_json,prompt,anchor_turn_id,created_at,question_channel_id) VALUES (?,?,?,?,?,?,?,?,?)",
                        (turn, conversation_id, message_id, scope.principal, encode(asdict(scope)), prompt, anchor_turn_id, now(), question_channel_id))
+            db.execute("INSERT INTO events(kind,subject,at) VALUES (?,?,?)",
+                ("question_message" if question_is_message else "question_interaction", turn, now()))
             return turn
 
     @staticmethod

@@ -54,6 +54,8 @@ def test_new_and_ask_replays_do_not_duplicate_or_switch_turns(setup):
         assert replay["conversation_id"] == first["conversation_id"]
         with arms.connect(readonly=True) as db:
             assert db.execute("SELECT COUNT(*) FROM turns").fetchone()[0] == 1
+            assert db.execute("SELECT question_channel_id FROM turns").fetchone()[0] is None
+            assert db.execute("SELECT COUNT(*) FROM events WHERE kind='question_interaction'").fetchone()[0] == 1
         await client.close()
     asyncio.run(run())
 
