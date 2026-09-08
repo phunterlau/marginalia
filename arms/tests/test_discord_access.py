@@ -59,6 +59,21 @@ def test_thread_access_is_fresh_and_parent_bound(setup):
     asyncio.run(run())
 
 
+def test_thread_creation_requires_bot_permission(setup):
+    arms, _ = setup
+    data = responses()
+    data["guilds/10/roles"][0]["permissions"] = str(VIEW | HISTORY | ATTACH | SEND)
+    async def run():
+        access = DiscordAccess(arms, Client(data), "123")
+        await access.authorize("1", channel_id="20", guild_id="10")
+        with pytest.raises(Unavailable):
+            await access.authorize("1", channel_id="20", guild_id="10", require_thread_creation=True)
+        data["channels/20"]["permission_overwrites"] = [
+            {"id": "123", "type": 1, "allow": str(1 << 35), "deny": "0"}]
+        await access.authorize("1", channel_id="20", guild_id="10", require_thread_creation=True)
+    asyncio.run(run())
+
+
 @pytest.mark.parametrize("change", ["guild", "parent", "archived", "private", "member"])
 def test_thread_mismatches_fail_closed(setup, change):
     arms, _ = setup

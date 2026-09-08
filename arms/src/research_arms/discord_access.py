@@ -59,7 +59,7 @@ class DiscordAccess:
             raise Unavailable()
         return response.json()
 
-    async def authorize(self, actor, *, channel_id, guild_id=None, expected_space=None):
+    async def authorize(self, actor, *, channel_id, guild_id=None, expected_space=None, require_thread_creation=False):
         snowflake(actor), snowflake(channel_id)
         if guild_id is not None: snowflake(guild_id)
         try:
@@ -98,6 +98,7 @@ class DiscordAccess:
                     permissions = channel_permissions(guild_id, guild["owner_id"], member, roles, parent["permission_overwrites"])
                     required = VIEW | HISTORY | (THREAD_SEND if parent_id else SEND)
                     if user == self.bot_user_id: required |= ATTACH
+                    if user == self.bot_user_id and require_thread_creation: required |= 1 << 35
                     if permissions & required != required: raise Unavailable()
                     if channel["type"] == 12 and not permissions & MANAGE_THREADS:
                         membership = await self._get(f"channels/{channel_id}/thread-members/{user}")

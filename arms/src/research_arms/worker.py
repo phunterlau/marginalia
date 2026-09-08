@@ -99,6 +99,9 @@ class Supervisor:
                     if previous is None:
                         previous = db.execute("SELECT t.pi_entry_id FROM session_forks f JOIN turns t ON t.id=f.turn_id WHERE f.target_id=? AND f.state='COMPLETE'", (conv["id"],)).fetchone()
                     payload = {"scope": asdict(scope), "author": turn["author"], "question": turn["prompt"]}
+                    paper = db.execute("SELECT space_id,document_id,revision FROM paper_threads WHERE thread_id=? AND guild_id IS ? AND state='COMPLETE'", (conv["channel_id"], conv["guild_id"])).fetchone()
+                    if paper:
+                        payload["paper_starting_point"] = dict(paper)
                     if anchor:
                         payload["quoted_reply_anchor"] = anchor[0][:4000]
                         payload["anchor_omitted_characters"] = max(0, len(anchor[0]) - 4000)

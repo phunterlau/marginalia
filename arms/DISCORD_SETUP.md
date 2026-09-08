@@ -1,8 +1,8 @@
 # Foreground Discord pilot
 
 This is a partial pilot: conversation, source-submission and approved-job execution are implemented;
-starter-thread orchestration, reactions and publication controls
-are still pending. Do not treat it as the completed team-sharing release.
+explicit starter-thread creation is available, while automatic creation, recovery
+controls, reactions and publication remain pending. Do not treat it as the completed team-sharing release.
 
 ## Create a dedicated application
 
@@ -19,8 +19,8 @@ Reactions will need their own explicitly tested intent setup.
 
 For OAuth2 installation, select `bot` and `applications.commands`. Grant View
 Channels, Send Messages, Send Messages in Threads, Read Message History, and
-Attach Files in the selected research channel. Do not grant Administrator.
-Paper-thread creation/pinning permissions are deferred until those commands ship.
+Attach Files in the selected research channel. Add Create Public Threads to use
+`/paper thread`. Do not grant Administrator. Message pinning is not implemented.
 Once the application ID is available, generate the exact installation URL using
 Discord's OAuth2 URL Generator and review the requested permissions there.
 
@@ -73,8 +73,8 @@ login, with built-in tools and implicit resources disabled.
 6. A DM or explicit bot mention continues the selected conversation. Replying
    to a recorded bot answer selects its mapped conversation and supplies the
    exact stored answer as a bounded quote. Unknown reply anchors do not fall back
-   to the active session. Unrelated channel chatter is not retained. Paper-starter
-   reply routing is still pending.
+   to the active session. Unrelated channel chatter is not retained. Replies to
+   a recorded paper starter route into that paper's thread.
 7. `/paper status`, `/paper brief`, `/paper cards` and `/paper evidence` read
    exact document/block IDs from the current space. They do not spend tokens.
    Brief is currently a metadata overview, not a generated paper summary.
@@ -90,7 +90,10 @@ login, with built-in tools and implicit resources disabled.
    by the command options; it does not approve spending. Inspect the returned ID
    with `/paper submission submission_id:...`, then inspect its job before approval.
    Failed/interrupted source requests require local reconciliation. No automatic
-   retry is performed. Starter messages and dedicated paper threads are pending.
+   retry is performed. In a configured shared channel, `/paper thread job_id:...`
+   creates its starter and dedicated thread. Repeating the command reuses the
+   same revision's thread. Different revisions get different threads. Uncertain
+   sends require local reconciliation; do not manually repeat Discord writes.
 
 Paid execution is off by default. With `--run-approved-absorption`, the worker
 considers only Gateway submission jobs that already have an explicit approval.

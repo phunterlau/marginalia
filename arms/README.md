@@ -21,16 +21,16 @@ Keep operational databases, source archives, backups, credentials and Pi session
 outside the checkout. `ArmsRegistry(..., create=True)` explicitly creates a new
 operational registry; ordinary opening never initializes or migrates a database.
 
-Registry version 4 adds source submissions; version 3 added fork staging and
+Registry version 5 adds pinned-paper thread checkpoints; version 4 added source submissions; version 3 added fork staging and
 version 2 added routing. For a version-1
 registry, stop workers first and invoke the trusted local
 `research_arms.migrations.migrate_v1_to_v2(root)` function. It refuses a held
 worker lock or RUNNING claims, verifies a private SQLite backup, then migrates
 transactionally. It returns the backup path (or `None` if already current).
-Then run `migrate_v2_to_v3(root)` from the same module; existing version-2
-registries need only this second step. Each step creates its own verified backup.
-Finally run `migrate_v3_to_v4(root)`; version-3 registries need only that step.
-Opening an old registry does not perform either operation automatically.
+Then run `migrate_v2_to_v3(root)`, `migrate_v3_to_v4(root)`, and
+`migrate_v4_to_v5(root)` from the same module in order, starting at the registry's
+current version. Each step creates its own verified backup.
+Opening an old registry does not perform migrations automatically.
 
 ## Current library contract
 
@@ -205,7 +205,18 @@ One background source task runs at a time, without model calls. Failed or
 interrupted submissions require attention rather than automatic replay. Graceful
 shutdown joins source ingestion before releasing worker ownership. Existing
 RUNNING source rows after a restart need local reconciliation and block new
-source claims. Starter-thread orchestration remains pending.
+source claims.
+
+`/paper thread job_id:...` creates a shared paper starter and public thread from
+an existing source job. It requires current maintainer access and the bot's Create
+Public Threads permission. The exact paper revision gets a dedicated session;
+repeated requests reuse its thread, while different revisions stay separate.
+Replies to the starter route into the paper thread without switching the parent
+channel's selected conversation. Pi receives the space, document and pinned
+revision as its starting point. Message/thread dispatches have durable checkpoints;
+uncertain outcomes require reconciliation and are never automatically resent.
+Automatic creation after ingestion and user-facing reconciliation remain pending.
+This command creates a starter but does not pin the Discord message.
 
 `--run-approved-absorption` opts the Gateway into background paid processing of
 exact, already approved submission jobs. It is off by default. The worker checks
@@ -223,8 +234,8 @@ personal operations require the owner. Submission requires explicit spending
 limits and does not itself run model work. No live scoped absorption has
 been performed through this service.
 
-This is a partial pilot, **not a validated live deployment**. Paper-thread
-routing, Discord fork/reconciliation controls, publication consent,
+This is a partial pilot, **not a validated live deployment**. Automatic paper-thread
+creation, Discord fork/reconciliation controls, publication consent,
 scientific reviews, discussion search and reactions still need integration.
 The delivery and permissions paths are mock-tested, not live-tested. There is no
 HTTP listener, installed daemon or LaunchAgent.

@@ -18,6 +18,7 @@ from .papers import read_paper
 from .absorption import ScopedAbsorption
 from .submissions import PaperSubmissions
 from .paid_worker import PaidAbsorptionWorker
+from .paper_threads import PaperThreads
 from research_brain.jobs import SpendingLimits
 
 
@@ -62,6 +63,10 @@ class ResearchGateway(discord.Client):
         @paper.command(name="submission", description="Inspect the durable source-preparation request")
         async def paper_submission(interaction: discord.Interaction, submission_id: str):
             await self.execute(interaction, "paper_submission", submission_id=submission_id)
+
+        @paper.command(name="thread", description="Create or reuse the pinned shared-paper starter and thread")
+        async def paper_thread(interaction: discord.Interaction, job_id: str):
+            await self.execute(interaction, "paper_thread", job_id=job_id)
 
         @paper.command(name="approve", description="Authorize the exact absorption plan for later paid execution")
         async def paper_approve(interaction: discord.Interaction, job_id: str, plan_digest: str, confirm: bool = False):
@@ -122,14 +127,18 @@ class ResearchGateway(discord.Client):
         reference = str(message.reference.message_id) if message.reference and message.reference.message_id else None
         mentioned = any(user.id == self.user.id for user in message.mentions)
         with self.registry.connect(readonly=True) as db:
+            paper_reply = db.execute("SELECT * FROM paper_threads WHERE starter_id=? AND parent_id=? AND guild_id IS ? AND state='COMPLETE'", (reference, channel, guild)).fetchone() if reference else None
             known_reply = reference is not None and db.execute(
                 "SELECT 1 FROM outbox o JOIN turns t ON t.id=o.turn_id JOIN conversations c ON c.id=t.conversation_id WHERE o.discord_message_id=? AND o.state='DELIVERED' AND c.channel_id=? AND c.guild_id IS ?",
                 (reference, channel, guild)).fetchone() is not None
-        if guild is not None and not mentioned and not known_reply:
+        if guild is not None and not mentioned and not known_reply and paper_reply is None:
             return  # Never retain casual channel chatter.
         try:
             destination = await self.access.authorize(actor, channel_id=channel, guild_id=guild)
-            if reference is not None and not known_reply:
+            if paper_reply is not None:
+                await self.access.authorize(actor, channel_id=paper_reply["thread_id"], guild_id=guild, expected_space=destination["space_id"])
+                channel = paper_reply["thread_id"]
+            if reference is not None and not known_reply and paper_reply is None:
                 raise Unavailable()
             selected = self.registry.resolve_conversation(actor, channel_id=channel, guild_id=guild,
                 reply_message_id=reference if known_reply else None)
@@ -191,6 +200,11 @@ class ResearchGateway(discord.Client):
 
     async def handle(self, command, actor, channel, guild, message_id, destination, **options):
         """Internal authenticated handler; never expose caller-supplied destination data."""
+        if command == "paper_thread":
+            if guild is None: raise ValueError("Paper threads require a shared guild channel")
+            parent = destination["parent_channel_id"] or channel
+            return await PaperThreads(self.registry, self.access, self.rest, str(self.user.id),
+                service_factory=self.absorption_factory).ensure(actor, guild, parent, destination["space_id"], options["job_id"])
         if command in {"paper_add", "paper_submission"}:
             if self.submissions is None: raise Unavailable()
             ident = options.get("submission_id")

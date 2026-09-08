@@ -30,7 +30,7 @@ def test_native_command_registration_is_offline_and_minimal(setup):
     async def run():
         client = ResearchGateway(arms, "/unused/pi")
         assert {cmd.name for cmd in client.tree.get_commands()} == {"new", "resume", "session", "space", "ask", "stop", "paper"}
-        assert {cmd.name for cmd in client.tree.get_command("paper").commands} == {"status", "brief", "cards", "evidence", "job", "approve", "add", "submission"}
+        assert {cmd.name for cmd in client.tree.get_command("paper").commands} == {"status", "brief", "cards", "evidence", "job", "approve", "add", "submission", "thread"}
         assert client.intents.guilds and not client.intents.message_content and not client.intents.members
         assert client.supervisor is None and client.pump is None
         await client.close()
@@ -116,6 +116,39 @@ def test_casual_channel_messages_are_not_retained(setup):
         with arms.connect(readonly=True) as db:
             assert db.execute("SELECT COUNT(*) FROM turns").fetchone()[0] == 0
         await client.close()
+    asyncio.run(run())
+
+
+def test_parent_starter_reply_routes_to_paper_thread_without_switching_parent(setup):
+    from research_arms.paper_threads import PaperThreads
+    from test_paper_threads import Client, Service
+    arms, _ = setup
+    checks = []
+    class SharedAccess:
+        async def authorize(self, actor, **kwargs):
+            checks.append(kwargs["channel_id"])
+            return {"space_id": "project"}
+    async def run():
+        access = SharedAccess()
+        paper = await PaperThreads(arms, access, Client(), "123", service_factory=Service).ensure("1", "10", "20", "project", "job_x")
+        parent = arms.new_conversation("1", channel_id="20", guild_id="10")
+        arms.select_conversation(parent, "1", channel_id="20", guild_id="10")
+        client = ResearchGateway(arms, "/unused/pi")
+        client.access = access
+        client._connection.user = SimpleNamespace(id=123)
+        incoming = message(400, guild=10, reference=300)
+        incoming.channel.id = 20
+        checks.clear()
+        try:
+            await client.on_message(incoming)
+            await client.on_message(incoming)
+            with arms.connect(readonly=True) as db:
+                rows = db.execute("SELECT * FROM turns WHERE discord_message_id='400'").fetchall()
+                assert len(rows) == 1 and rows[0]["conversation_id"] == paper["conversation_id"]
+            assert checks[:3] == ["20", "300", "300"]
+            assert arms.resolve_conversation("1", channel_id="20", guild_id="10")["conversation_id"] == parent
+        finally:
+            await client.close()
     asyncio.run(run())
 
 
