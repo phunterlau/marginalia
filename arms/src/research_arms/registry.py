@@ -245,6 +245,28 @@ class ArmsRegistry:
             db.execute("UPDATE turns SET answer=?,pi_entry_id=?,status='ANSWERED' WHERE id=?", (answer, pi_entry_id, turn_id))
             db.execute("INSERT INTO outbox(id,turn_id,created_at) VALUES (?,?,?)", ("send_" + uuid.uuid4().hex, turn_id, now()))
 
+    def dispatch_turn(self, turn_id):
+        """Durable dispatch boundary; a turn can be dispatched only once."""
+        with self.connect() as db:
+            db.execute("BEGIN IMMEDIATE")
+            row, scope = self._turn_scope(db, turn_id)
+            if row["status"] != "RUNNING" or db.execute(
+                    "SELECT 1 FROM events WHERE kind='pi_dispatched' AND subject=?", (turn_id,)).fetchone():
+                raise Unavailable()
+            db.execute("INSERT INTO events(kind,subject,at) VALUES ('pi_dispatched',?,?)", (turn_id, now()))
+            return scope
+
+    def quarantine_turn(self, turn_id):
+        """Preserve uncertain context and prevent later queued turns resuming it."""
+        with self.connect() as db:
+            db.execute("BEGIN IMMEDIATE")
+            row = db.execute("SELECT * FROM turns WHERE id=?", (turn_id,)).fetchone()
+            if row is None or row["status"] != "RUNNING":
+                return
+            db.execute("UPDATE conversations SET status='NEEDS_ATTENTION' WHERE id=? AND status='OPEN'", (row["conversation_id"],))
+            db.execute("UPDATE turns SET status='NEEDS_ATTENTION' WHERE conversation_id=? AND status IN ('QUEUED','RUNNING')", (row["conversation_id"],))
+            db.execute("INSERT INTO events(kind,subject,at) VALUES ('pi_uncertain',?,?)", (turn_id, now()))
+
     def read(self, turn_id, space_id, operation, *args, **kwargs):
         """Worker-only capability: no caller-provided scope or principal."""
         if operation not in {"search", "recall", "get_document", "get_evidence", "get_research_object"}:

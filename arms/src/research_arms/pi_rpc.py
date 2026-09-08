@@ -147,8 +147,10 @@ class PiRPC:
             self.pending.pop(request_id, None)
 
     async def prompt(self, message, *, timeout=300, since=None):
-        if not isinstance(message, str) or not message.strip() or len(message) > 20_000:
-            raise ValueError("Prompt must contain 1..20000 characters")
+        # Trusted supervisor envelope includes attribution and a bounded reply
+        # anchor; the user question is separately limited to 20k by the registry.
+        if not isinstance(message, str) or not message.strip() or len(message) > 30_000:
+            raise ValueError("Prompt envelope must contain 1..30000 characters")
         async with self.prompt_lock:
             if not self.events.empty():
                 raise PiProtocolError("Unconsumed Pi events; do not reuse uncertain session")

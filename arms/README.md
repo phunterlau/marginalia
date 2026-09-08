@@ -59,8 +59,7 @@ IDs a future supervisor must abort. It does not itself terminate processes.
 UUID and backend session directory, disables built-in tools and implicit
 extensions/skills/templates/context files, and disables automatic retries. This
 client optionally loads exactly three scope-bound research tools through
-`ToolBridge` and the bundled extension. A supervisor still needs to connect the
-worker lifecycle. Environment API keys are excluded; Pi's
+`ToolBridge` and the bundled extension. Environment API keys are excluded; Pi's
 configured login is the intended authentication route for future synthesis.
 
 Responses are correlated by request ID. Frames use bounded LF-only JSONL.
@@ -80,6 +79,24 @@ optional installed-Pi startup test with `ARMS_TEST_PI=/absolute/path/to/pi`.
 Socket tests verify shared/private isolation and revocation. Native startup
 verification proves loading, not a model-driven tool call or a complete turn.
 
+`research_arms.worker.Supervisor` connects claimed turns to Pi and stores finished
+answers in the registry/outbox. It holds a single-supervisor file lock, bounds
+the pool to two processes, reuses exact conversation sessions, and partitions
+session directories by space. Call `run_once()` to process one queued turn and
+`maintain()` periodically to retire ten-minute-idle or revoked workers. Always
+close the supervisor. No background loop or service is installed automatically.
+Existing RUNNING claims fail startup closed until prior processes have been
+verified stopped and explicit recovery has occurred.
+
+Prompts contain the current immutable scope, author, question, and an optional
+bounded quoted reply anchor with an omission count. Dispatch is audited before
+prompting. Only a newly returned, normally completed assistant message becomes
+an answer; errors, truncation and unresolved tool calls do not. Interrupted turns
+quarantine their conversation and queued follow-ups without automatic replay.
+Synthetic worker tests cover reuse, concurrency, revocation during generation,
+idle retirement and answer/outbox persistence. Live synthesis and process-kill
+recovery validation remain open; these are not proven by native startup tests.
+
 Delivery claims persist SENDING before external dispatch and distinguish UNKNOWN
 from DELIVERED. Confirmations are idempotent; uncertain sends require explicit
 remote reconciliation and are never automatically resent. `validate_delivery`
@@ -92,7 +109,7 @@ quarantines interrupted conversations, and marks interrupted sends UNKNOWN.
 
 This is an offline control-plane foundation, **not a running Discord bot**.
 Gateway authentication/handlers, default active-DM and paper-thread routing,
-forks, the Pi process pool, user-facing stop/recovery,
+forks, user-facing stop/recovery, the background supervisor loop,
 actual delivery and remote reconciliation, publication consent, scientific reviews,
 discussion search and reactions are not yet connected. Outbox insertion is
 tested, not external delivery. There is no HTTP listener, daemon or LaunchAgent.
