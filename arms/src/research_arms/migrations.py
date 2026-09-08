@@ -15,6 +15,10 @@ def migrate_v2_to_v3(root):
     return _migrate(root, 2, 3, "CREATE TABLE session_forks(request_id TEXT PRIMARY KEY, source_id TEXT NOT NULL REFERENCES conversations(id), target_id TEXT UNIQUE NOT NULL REFERENCES conversations(id), turn_id TEXT NOT NULL REFERENCES turns(id), actor TEXT NOT NULL, state TEXT NOT NULL, created_at TEXT NOT NULL)")
 
 
+def migrate_v3_to_v4(root):
+    return _migrate(root, 3, 4, "CREATE TABLE paper_submissions(id TEXT PRIMARY KEY, actor TEXT NOT NULL, guild_id TEXT, channel_id TEXT NOT NULL, scope_json TEXT NOT NULL, url TEXT NOT NULL, limits_json TEXT NOT NULL, state TEXT NOT NULL, job_id TEXT, created_at TEXT NOT NULL)")
+
+
 def _migrate(root, previous, current, statement):
     root = Path(root).resolve(strict=True)
     path = root / "arms.sqlite3"

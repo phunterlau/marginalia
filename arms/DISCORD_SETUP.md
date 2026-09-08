@@ -1,7 +1,7 @@
 # Foreground Discord pilot
 
-This is a partial pilot: conversation slash commands are implemented; paper
-ingestion commands, reactions and publication controls
+This is a partial pilot: conversation and source-submission commands are implemented;
+paid absorption-worker integration, reactions and publication controls
 are still pending. Do not treat it as the completed team-sharing release.
 
 ## Create a dedicated application
@@ -81,9 +81,15 @@ login, with built-in tools and implicit resources disabled.
 8. Owners/maintainers can inspect an existing scoped absorption plan with
    `/paper job job_id:...`. `/paper approve job_id:... plan_digest:... confirm:true`
    explicitly approves that exact plan for later paid execution. It does not
-   launch providers from the command handler. The Gateway absorption worker and
-   `/paper add` submission orchestration are not connected yet; unscoped legacy
+   launch providers from the command handler. The Gateway paid absorption worker
+   is not connected yet; unscoped legacy
    plans cannot be approved through this command.
+9. `/paper add url:https://arxiv.org/abs/...` queues source preparation. It records
+   explicit default ceilings of 32 calls and 2,000,000 reserved tokens, overridable
+   by the command options; it does not approve spending. Inspect the returned ID
+   with `/paper submission submission_id:...`, then inspect its job before approval.
+   Failed/interrupted source requests require local reconciliation. No automatic
+   retry is performed. Starter messages and dedicated paper threads are pending.
 
 Do not submit sensitive private information in shared command arguments. Shared
 means the configured channel audience, not just the person invoking a command.

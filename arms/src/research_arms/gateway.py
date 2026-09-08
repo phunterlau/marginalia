@@ -16,6 +16,8 @@ from .discord_access import DiscordAccess
 from .discord_io import DiscordSender, assemble_question, download_chunks
 from .papers import read_paper
 from .absorption import ScopedAbsorption
+from .submissions import PaperSubmissions
+from research_brain.jobs import SpendingLimits
 
 
 class ResearchGateway(discord.Client):
@@ -34,6 +36,7 @@ class ResearchGateway(discord.Client):
         self.access = self.supervisor = self.pump = None
         self.running_turns = set()
         self.gateway_online = False
+        self.submissions = self.source_task = None
         self.tree = app_commands.CommandTree(self)
         self._commands()
 
@@ -48,6 +51,14 @@ class ResearchGateway(discord.Client):
         @paper.command(name="job", description="Inspect an absorption job and its exact paid-work plan digest")
         async def paper_job(interaction: discord.Interaction, job_id: str):
             await self.execute(interaction, "paper_job", job_id=job_id)
+
+        @paper.command(name="add", description="Queue arXiv source ingestion and prepare a paid-work plan without running it")
+        async def paper_add(interaction: discord.Interaction, url: str, max_calls: int = 32, max_reserved_tokens: int = 2000000):
+            await self.execute(interaction, "paper_add", url=url, max_calls=max_calls, max_reserved_tokens=max_reserved_tokens)
+
+        @paper.command(name="submission", description="Inspect the durable source-preparation request")
+        async def paper_submission(interaction: discord.Interaction, submission_id: str):
+            await self.execute(interaction, "paper_submission", submission_id=submission_id)
 
         @paper.command(name="approve", description="Authorize the exact absorption plan for later paid execution")
         async def paper_approve(interaction: discord.Interaction, job_id: str, plan_digest: str, confirm: bool = False):
@@ -88,6 +99,7 @@ class ResearchGateway(discord.Client):
             self.access = DiscordAccess(self.registry, self.rest, str(self.user.id))
             self.supervisor = Supervisor(self.registry, self.pi_executable,
                                          authorize_turn=self.access.authorize_turn)
+            self.submissions = PaperSubmissions(self.registry, self.access, service_factory=self.absorption_factory)
         if self.pump is None or self.pump.done():
             self.pump = asyncio.create_task(self._pump())
 
@@ -174,6 +186,13 @@ class ResearchGateway(discord.Client):
 
     async def handle(self, command, actor, channel, guild, message_id, destination, **options):
         """Internal authenticated handler; never expose caller-supplied destination data."""
+        if command in {"paper_add", "paper_submission"}:
+            if self.submissions is None: raise Unavailable()
+            ident = options.get("submission_id")
+            if command == "paper_add":
+                ident = self.submissions.enqueue(actor, channel, guild, destination["space_id"], message_id,
+                    options["url"], limits=SpendingLimits(options["max_calls"], options["max_reserved_tokens"]))
+            return self.submissions.show(ident, actor, channel, guild, destination["space_id"])
         if command in {"paper_job", "paper_approve"}:
             def operate():
                 service = self.absorption_factory(self.registry, actor, destination["space_id"])
@@ -237,6 +256,12 @@ class ResearchGateway(discord.Client):
                 await asyncio.sleep(2)
                 continue
             await self.supervisor.maintain()
+            if self.source_task is not None and self.source_task.done():
+                try: self.source_task.result()
+                except Exception: pass
+                self.source_task = None
+            if self.source_task is None:
+                self.source_task = asyncio.create_task(self.submissions.work_once())
             for task in list(self.running_turns):
                 if task.done():
                     self.running_turns.remove(task)
@@ -258,6 +283,9 @@ class ResearchGateway(discord.Client):
             await asyncio.gather(self.pump, return_exceptions=True)
         for task in self.running_turns: task.cancel()
         await asyncio.gather(*self.running_turns, return_exceptions=True)
+        # A source ingest runs in a thread; cancelling its asyncio waiter would
+        # not stop disk writes. Join it before releasing process ownership.
+        if self.source_task: await asyncio.gather(self.source_task, return_exceptions=True)
         if self.supervisor: await self.supervisor.close()
         if self.rest: await self.rest.aclose()
         await super().close()

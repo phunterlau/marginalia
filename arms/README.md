@@ -21,13 +21,15 @@ Keep operational databases, source archives, backups, credentials and Pi session
 outside the checkout. `ArmsRegistry(..., create=True)` explicitly creates a new
 operational registry; ordinary opening never initializes or migrates a database.
 
-Registry version 3 adds durable fork staging; version 2 added routing. For a version-1
+Registry version 4 adds source submissions; version 3 added fork staging and
+version 2 added routing. For a version-1
 registry, stop workers first and invoke the trusted local
 `research_arms.migrations.migrate_v1_to_v2(root)` function. It refuses a held
 worker lock or RUNNING claims, verifies a private SQLite backup, then migrates
 transactionally. It returns the backup path (or `None` if already current).
 Then run `migrate_v2_to_v3(root)` from the same module; existing version-2
 registries need only this second step. Each step creates its own verified backup.
+Finally run `migrate_v3_to_v4(root)`; version-3 registries need only that step.
 Opening an old registry does not perform either operation automatically.
 
 ## Current library contract
@@ -197,15 +199,20 @@ includes its locator and explicit text omission information. Larger command
 results are attached as JSON. `/paper job` and `/paper approve` inspect and approve
 existing scoped jobs for owners/maintainers, with an exact digest and explicit
 confirmation. The command only queues work; it never calls a provider itself.
-`/paper add`, absorption-worker integration and starter threads remain pending.
+`/paper add` durably queues an owner/maintainer's source request with bounded
+spending limits; `/paper submission` reports the resulting approval-job ID.
+One background source task runs at a time, without model calls. Failed or
+interrupted submissions require attention rather than automatic replay. Graceful
+shutdown joins source ingestion before releasing worker ownership. Existing
+RUNNING source rows after a restart need local reconciliation and block new
+source claims. Paid absorption-worker integration and starter threads remain pending.
 
 `ScopedAbsorption` is the maintainer-only service foundation for those mutations.
 It binds an immutable authorization context into the paid-plan digest and checks
 it again before approval and provider dispatch. A plain authorization-unaware
 worker refuses scoped jobs. Shared members cannot submit or approve absorption;
 personal operations require the owner. Submission requires explicit spending
-limits and does not itself run model work. Gateway mutation commands and durable
-source-submission orchestration remain pending; no live scoped absorption has
+limits and does not itself run model work. No live scoped absorption has
 been performed through this service.
 
 This is a partial pilot, **not a validated live deployment**. Paper-thread
