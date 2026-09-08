@@ -86,6 +86,8 @@ class Supervisor:
                     conv = db.execute("SELECT * FROM conversations WHERE id=?", (turn["conversation_id"],)).fetchone()
                     anchor = db.execute("SELECT answer FROM turns WHERE id=?", (turn["anchor_turn_id"],)).fetchone() if turn["anchor_turn_id"] else None
                     previous = db.execute("SELECT pi_entry_id FROM turns WHERE conversation_id=? AND status='ANSWERED' ORDER BY created_at DESC,id DESC LIMIT 1", (conv["id"],)).fetchone()
+                    if previous is None:
+                        previous = db.execute("SELECT t.pi_entry_id FROM session_forks f JOIN turns t ON t.id=f.turn_id WHERE f.target_id=? AND f.state='COMPLETE'", (conv["id"],)).fetchone()
                     payload = {"scope": asdict(scope), "author": turn["author"], "question": turn["prompt"]}
                     if anchor:
                         payload["quoted_reply_anchor"] = anchor[0][:4000]

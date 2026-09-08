@@ -21,12 +21,14 @@ Keep operational databases, source archives, backups, credentials and Pi session
 outside the checkout. `ArmsRegistry(..., create=True)` explicitly creates a new
 operational registry; ordinary opening never initializes or migrates a database.
 
-Registry version 2 adds explicit conversation routing. For an existing version-1
+Registry version 3 adds durable fork staging; version 2 added routing. For a version-1
 registry, stop workers first and invoke the trusted local
 `research_arms.migrations.migrate_v1_to_v2(root)` function. It refuses a held
 worker lock or RUNNING claims, verifies a private SQLite backup, then migrates
 transactionally. It returns the backup path (or `None` if already current).
-Opening an old registry does not perform this operation automatically.
+Then run `migrate_v2_to_v3(root)` from the same module; existing version-2
+registries need only this second step. Each step creates its own verified backup.
+Opening an old registry does not perform either operation automatically.
 
 ## Current library contract
 
@@ -129,6 +131,16 @@ that later canary history is excluded and the source file is unchanged, without
 model calls. The future coordinator must authorize both scopes, stop the source
 worker, stage the destination binding, and reconcile partial filesystem output.
 Do not expose the helper's filesystem arguments to Discord or model tools.
+
+`forks.fork_conversation(supervisor, ...)` provides the same-audience coordinator.
+It authorizes an exact completed turn, retires the source worker, persists a
+FORKING destination before creating the file, and activates it only after a fresh
+authorization check. The request ID is idempotent; partial failures remain
+NEEDS_ATTENTION and are never automatically replayed. Scope changes require a
+fresh conversation, not copying old context into a narrower or shared audience.
+The first child turn verifies that its inherited answer exists in Pi history.
+Native SDK/coordinator tests exclude future canary history without model calls.
+Discord handlers and user-facing partial-fork reconciliation are still pending.
 
 Delivery claims persist SENDING before external dispatch and distinguish UNKNOWN
 from DELIVERED. Confirmations are idempotent; uncertain sends require explicit
