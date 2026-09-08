@@ -11,7 +11,7 @@ dependencies = ["research-brain>=0.1.0"]
 
 [project.optional-dependencies]
 dev = ["pytest>=8"]
-discord = ["httpx>=0.28,<1"]
+discord = ["httpx>=0.28,<1", "discord.py>=2.6,<3"]
 
 [tool.setuptools.packages.find]
 where = ["src"]

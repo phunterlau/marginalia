@@ -135,7 +135,7 @@ class ArmsRegistry:
         return row
 
     def new_conversation(self, discord_user, *, channel_id, guild_id=None,
-                         parent_channel_id=None, name="Research", read_spaces=()):
+                         parent_channel_id=None, name="Research", read_spaces=(), request_id=None):
         snowflake(channel_id)
         if not isinstance(name, str) or not 1 <= len(name.strip()) <= 100:
             raise ValueError("Conversation name must be 1..100 characters")
@@ -156,7 +156,19 @@ class ArmsRegistry:
                 if binding is None:
                     raise Unavailable()
                 space = binding[0]
-            conversation = "conv_" + uuid.uuid4().hex
+            if request_id is not None:
+                snowflake(request_id)
+                conversation = "conv_" + hashlib.sha256(encode([discord_user, guild_id, channel_id, request_id]).encode()).hexdigest()[:32]
+                existing = db.execute("SELECT * FROM conversations WHERE id=?", (conversation,)).fetchone()
+                if existing:
+                    row, current = self._authorized(db, conversation, discord_user, channel_id, guild_id)
+                    desired = self.spaces.scope(principal["principal"], conversation_id=conversation,
+                        writable_space=space, read_spaces=tuple(read_spaces))
+                    if row["name"] != name.strip() or current != desired:
+                        raise ValueError("Duplicate conversation request changed")
+                    return conversation
+            else:
+                conversation = "conv_" + uuid.uuid4().hex
             try:
                 scope = self.spaces.scope(principal["principal"], conversation_id=conversation,
                                           writable_space=space, read_spaces=tuple(read_spaces))

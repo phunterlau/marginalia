@@ -181,16 +181,18 @@ and [thread permissions](https://docs.discord.com/developers/topics/threads).
 
 ## Remaining integration
 
-This is an offline control-plane foundation, **not a running Discord bot**.
-Gateway authentication/handlers, default active-DM and paper-thread routing,
-forks, Discord stop handlers and recovery controls, the background supervisor loop,
-actual delivery and remote reconciliation, publication consent, scientific reviews,
-discussion search and reactions are not yet connected. Outbox insertion is
-tested, not external delivery. There is no HTTP listener, daemon or LaunchAgent.
+The foreground [Discord pilot setup](DISCORD_SETUP.md) now exposes `/new`,
+`/resume`, `/session`, `/space`, `/ask` and `/stop` through the Gateway. It has no
+HTTP listener and synchronizes commands only with an explicit flag. Construction
+and command-handler tests are offline; no live bot connection has been validated.
+Ordinary message/reply ingestion and paper/feedback commands remain pending.
 
-Before exposing any transport, add process ownership/recovery and revalidate
-authorization at the actual outbound-send boundary. The worker's turn capability
-must be injected server-side, never accepted from a Discord user or Pi tool
-argument. Session file locations must be separately rooted by space. Live use
-also requires the absorption validation gate, user-provided Discord setup and
-controlled multi-user testing. Synthetic canary tests are not that live gate.
+This is a partial pilot, **not a validated live deployment**. Paper-thread and
+ordinary reply routing, Discord fork/reconciliation controls, publication consent,
+scientific reviews, discussion search and reactions still need integration.
+The delivery and permissions paths are mock-tested, not live-tested. There is no
+HTTP listener, installed daemon or LaunchAgent.
+
+Live use still requires the absorption validation gate, user-provided Discord
+setup, process-kill/reconnect recovery validation and controlled multi-user
+testing. Synthetic canary tests are not substitutes for those gates.
