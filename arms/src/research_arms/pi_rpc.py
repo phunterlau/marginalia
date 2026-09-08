@@ -120,7 +120,10 @@ class PiRPC:
                     self.events.put_nowait(event)
         except asyncio.CancelledError:
             raise
-        except Exception:
+        except Exception as exc:
+            # Only code-owned classifications, never raw frames or provider errors.
+            import logging
+            logging.getLogger(__name__).warning("Pi reader failed: %s", type(exc).__name__)
             self._fail("Pi protocol interrupted; inspect local session before retry")
 
     async def command(self, name, *, timeout=20, **data):
@@ -163,6 +166,8 @@ class PiRPC:
                     if event["type"] == "agent_settled":
                         break
                     if event["type"] in {"auto_retry_start", "extension_error"}:
+                        import logging
+                        logging.getLogger(__name__).warning("Pi turn rejected event type: %s", event["type"])
                         raise PiProtocolError("Unexpected retry or extension failure")
                 state = await self.command("get_state")
                 if state.get("isStreaming") or state.get("isCompacting") or state.get("pendingMessageCount", 0):

@@ -10,10 +10,21 @@ import fcntl
 import json
 import os
 import time
+import logging
+import traceback
+from pathlib import Path
 
 from .pi_rpc import PiRPC, PiProtocolError
 from .registry import Unavailable
 from .tool_bridge import ToolBridge
+
+
+def report_worker_error(turn_id, phase, exc):
+    frames = traceback.extract_tb(exc.__traceback__)
+    logging.getLogger(__name__).warning(json.dumps({"event": "pi_turn_failed",
+        "turn_id": turn_id, "phase": phase, "error_type": type(exc).__name__,
+        "locations": [{"file": Path(f.filename).name, "function": f.name, "line": f.lineno}
+            for f in frames[-6:]]}))
 
 
 def final_answer(result):
@@ -141,7 +152,8 @@ class Supervisor:
                 worker["busy"] = True
                 worker["turn"] = turn_id
                 worker["bridge"].bind(turn_id)
-            except BaseException:
+            except BaseException as exc:
+                report_worker_error(turn_id, "startup", exc)
                 self.registry.quarantine_turn(turn_id)
                 if "conversation" in locals():
                     await self._retire(conversation)
@@ -160,7 +172,8 @@ class Supervisor:
                 await asyncio.wait_for(self.authorize_turn(turn_id), 30)
             self.registry.save_answer(turn_id, answer, entry_id)
             return turn_id
-        except BaseException:
+        except BaseException as exc:
+            report_worker_error(turn_id, "prompt_or_completion", exc)
             self.registry.quarantine_turn(turn_id)
             async with self.lock:
                 await self._retire(conversation)
