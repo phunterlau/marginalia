@@ -25,6 +25,7 @@ from .thread_worker import PaperThreadWorker
 from .reviews import CardReviews
 from .publication_commands import handle as handle_publication
 from .discussion_worker import DiscussionWorker
+from .discussion_reconcile import DiscussionReconciler
 from .discussion_edits import observe as observe_discussion_edit
 from .forks import fork_conversation
 from .registry import snowflake
@@ -58,6 +59,8 @@ class ResearchGateway(discord.Client):
         self.publication_tasks = set()
         self.publication_stopping = False
         self.discussion_worker = self.discussion_task = None
+        self.reconciler = DiscussionReconciler(self)
+        self.reconcile_task = None
         self.tree = app_commands.CommandTree(self)
         self._commands()
 
@@ -158,6 +161,7 @@ class ResearchGateway(discord.Client):
 
     async def on_ready(self):
         self.gateway_online = True
+        self.reconciler.restart()
         if self.supervisor is None:
             self.rest = self.rest or DiscordSender.environment_client()
             self.access = DiscordAccess(self.registry, self.rest, str(self.user.id))
@@ -178,6 +182,7 @@ class ResearchGateway(discord.Client):
 
     async def on_resumed(self):
         self.gateway_online = True
+        self.reconciler.restart()
 
     async def on_raw_message_delete(self, payload):
         self.registry.discussion_message_deleted(guild_id=str(payload.guild_id) if payload.guild_id else None,
@@ -403,6 +408,12 @@ class ResearchGateway(discord.Client):
                 await asyncio.sleep(2)
                 continue
             await self.supervisor.maintain()
+            if self.reconcile_task is not None and self.reconcile_task.done():
+                try: self.reconcile_task.result()
+                except Exception: pass
+                self.reconcile_task = None
+            if self.reconcile_task is None:
+                self.reconcile_task = asyncio.create_task(self.reconciler.work_once())
             if self.source_task is not None and self.source_task.done():
                 try: self.source_task.result()
                 except Exception: pass
@@ -458,6 +469,9 @@ class ResearchGateway(discord.Client):
         if self.thread_task: await asyncio.gather(self.thread_task, return_exceptions=True)
         if self.paid_task: await asyncio.gather(self.paid_task, return_exceptions=True)
         if self.discussion_task: await asyncio.gather(self.discussion_task, return_exceptions=True)
+        if self.reconcile_task:
+            self.reconcile_task.cancel()
+            await asyncio.gather(self.reconcile_task, return_exceptions=True)
         if self.publication_tasks: await asyncio.gather(*self.publication_tasks, return_exceptions=True)
         if self.supervisor: await self.supervisor.close()
         if self.rest: await self.rest.aclose()

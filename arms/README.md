@@ -400,14 +400,30 @@ revision, and edits cannot undo deletion. Failed fetches or oversized edits remo
 stale content from search after projection. Pi turns and session history are
 never rewritten or replayed. Before delivery, edits are retained in an immutable
 ledger and applied atomically to the initial discussion projection at confirmation;
-deletion markers still take precedence. Edits missed while offline still need reconciliation.
+deletion markers still take precedence.
 New turns also record whether their question came from a Discord message or a
 slash-command interaction. An interaction ID is not a message ID: `/ask` questions
 remain searchable but have no source-message URL and cannot be targeted by raw
 message edits/deletions. Their delivered answers still have ordinary message links.
 Transport markers are written atomically with the turn; historical records are
-not guessed or rewritten. Future reconnect scans must only fetch question IDs
+not guessed or rewritten. Reconnect scans only fetch question IDs
 with an explicit message marker, not legacy unknown or interaction IDs.
+
+Gateway ready/resume starts a bounded scan of existing tracked turns, one turn
+per pump iteration, with at most its question and confirmed answer checked.
+It uses exact-message GETs, not channel-history downloads. Edited content goes
+through the same verified attachment/text reader. Only HTTP 404 plus Discord's
+`10008` (Unknown Message), with fresh access checks before and after, creates a
+deletion marker; missing channels, denied access, rate limits and server errors
+remain `NEEDS_ATTENTION` outcomes. Outcomes are audited without message content.
+See [Discord error codes](https://docs.discord.com/developers/topics/opcodes-and-status-codes).
+Each message check has a 60-second bound. A scan snapshots the turn high-water mark,
+coalesces reconnect requests, and restarts idempotently after process restart.
+Failures are not retried in a tight loop; the next reconnect checks them again.
+Reconciliation is eventually consistent: search may still expose stale content
+until the scan and discussion projection complete. Historical unknown question
+transports are deliberately skipped. This is offline mock-tested, not a completed
+live reconnect/privacy gate.
 The delivery and permissions paths are mock-tested, not live-tested. There is no
 HTTP listener, installed daemon or LaunchAgent.
 
