@@ -6,7 +6,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from research_arms.feedback import record, view
+from research_arms.feedback import record, view, clear
 from research_arms.feedback import observe
 from research_arms import Unavailable
 from test_registry import setup
@@ -81,3 +81,23 @@ def test_raw_events_are_scoped_and_removal_survives_revocation(setup):
         event.message_id, event.emoji = 200, Emoji(ident=42)
         assert not await observe(client, event, active=True)
     asyncio.run(run())
+
+
+def test_clear_is_exact_atomic_and_idempotent(setup):
+    import sqlite3
+    arms, spaces = setup
+    _, delivery = answered(arms)
+    arms.confirm_delivery(delivery["delivery_id"], "200")
+    scope = spaces.scope("alice", conversation_id="feedback", writable_space="project")
+    for emoji in ("🔥", "⭐", "🔬"):
+        record(arms, scope, guild="10", channel="21", message="200", emoji=emoji, active=True)
+    assert clear(arms, guild="10", channel="99", message="200") == 0
+    assert clear(arms, guild=None, channel="21", message="200") == 0
+    assert clear(arms, guild="10", channel="21", message="200", emoji="🔥") == 1
+    assert clear(arms, guild="10", channel="21", message="200", emoji="🔥") == 0
+    with arms.connect() as db:
+        db.execute("CREATE TRIGGER fail_clear BEFORE INSERT ON events WHEN NEW.kind='feedback_signal' AND json_extract(NEW.subject,'$.emoji')='⭐' BEGIN SELECT RAISE(ABORT,'injected'); END")
+    with pytest.raises(sqlite3.IntegrityError): clear(arms, guild="10", channel="21", message="200")
+    with arms.connect() as db: db.execute("DROP TRIGGER fail_clear")
+    assert clear(arms, guild="10", channel="21", message="200") == 2
+    assert clear(arms, guild="10", channel="21", message="200") == 0

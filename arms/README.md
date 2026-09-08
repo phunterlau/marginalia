@@ -58,7 +58,11 @@ but withdrawal of a known signal may still remove it after revocation.
 own signals in DMs. In a DM, `spaces:"project-a project-b"` explicitly includes
 signals from currently accessible shared spaces; a shared command cannot attach
 other spaces. Results contain references and scores, not message bodies.
-Reaction-list/reconnect reconciliation, remove-all events, and an explicit
+Raw remove-all and remove-one-emoji events atomically withdraw matching known
+signals; message deletion (including bulk deletion) also clears its signals.
+These withdrawal-only paths do not depend on the former actor retaining access.
+They share the reaction-handler lock so an in-flight add cannot overtake a clear.
+Reaction-list/reconnect reconciliation and an explicit
 approved deep-dive Run action remain pending. Current event wiring is mock-tested,
 not live Discord validated. Missed events can leave signals stale until reconciliation.
 

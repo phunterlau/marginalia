@@ -40,6 +40,26 @@ def target(registry, guild, channel, message):
     return rows[0][0] if len(rows) == 1 else None
 
 
+def clear(registry, *, guild, channel, message, emoji=None):
+    """Authenticated raw clear/delete event: retract only already-known signals."""
+    snowflake(channel), snowflake(message)
+    if guild is not None: snowflake(guild)
+    if emoji is not None and emoji not in EMOJIS: return 0
+    with registry.connect() as db:
+        db.execute("BEGIN IMMEDIATE")
+        rows = db.execute("SELECT subject FROM events WHERE kind='feedback_signal' AND json_extract(subject,'$.guild_id') IS ? AND json_extract(subject,'$.channel_id')=? AND json_extract(subject,'$.message_id')=? ORDER BY id DESC", (guild, channel, message)).fetchall()
+        seen, count = set(), 0
+        for row in rows:
+            value = json.loads(row[0])
+            if value["key"] in seen: continue
+            seen.add(value["key"])
+            if not value["active"] or (emoji is not None and value["emoji"] != emoji): continue
+            value.update(active=False, recorded_at=now(), removal_reason="message_or_reaction_clear")
+            db.execute("INSERT INTO events(kind,subject,at) VALUES ('feedback_signal',?,?)", (encode(value), value["recorded_at"]))
+            count += 1
+        return count
+
+
 def record(registry, scope, *, guild, channel, message, emoji, active):
     if emoji not in EMOJIS or type(active) is not bool: raise ValueError("Unsupported feedback signal")
     space = target(registry, guild, channel, message)

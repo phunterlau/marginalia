@@ -30,7 +30,7 @@ from .research_commands import recall as research_recall
 from .research_commands import compare as research_compare
 from .research_commands import frontier as research_frontier
 from .saves import save_excerpt
-from .feedback import observe as observe_feedback, view as feedback_view
+from .feedback import observe as observe_feedback, view as feedback_view, clear as clear_feedback
 from .discussion_edits import observe as observe_discussion_edit
 from .forks import fork_conversation
 from .registry import snowflake
@@ -226,9 +226,23 @@ class ResearchGateway(discord.Client):
     async def on_raw_reaction_remove(self, payload):
         await self._feedback(payload, False)
 
+    async def on_raw_reaction_clear(self, payload):
+        async with self.feedback_lock:
+            clear_feedback(self.registry, guild=str(payload.guild_id) if payload.guild_id else None,
+                channel=str(payload.channel_id), message=str(payload.message_id))
+
+    async def on_raw_reaction_clear_emoji(self, payload):
+        if payload.emoji.id is not None: return
+        async with self.feedback_lock:
+            clear_feedback(self.registry, guild=str(payload.guild_id) if payload.guild_id else None,
+                channel=str(payload.channel_id), message=str(payload.message_id), emoji=str(payload.emoji))
+
     async def on_raw_message_delete(self, payload):
-        self.registry.discussion_message_deleted(guild_id=str(payload.guild_id) if payload.guild_id else None,
-            channel_id=str(payload.channel_id), message_id=str(payload.message_id))
+        async with self.feedback_lock:
+            guild = str(payload.guild_id) if payload.guild_id else None
+            channel, message = str(payload.channel_id), str(payload.message_id)
+            clear_feedback(self.registry, guild=guild, channel=channel, message=message)
+            self.registry.discussion_message_deleted(guild_id=guild, channel_id=channel, message_id=message)
 
     async def on_raw_message_edit(self, payload):
         if self.access is None or self.rest is None or self.user is None or not payload.data.get("edited_timestamp"):
@@ -241,8 +255,9 @@ class ResearchGateway(discord.Client):
 
     async def on_raw_bulk_message_delete(self, payload):
         for ident in payload.message_ids:
-            self.registry.discussion_message_deleted(guild_id=str(payload.guild_id) if payload.guild_id else None,
-                channel_id=str(payload.channel_id), message_id=str(ident))
+            from types import SimpleNamespace
+            await self.on_raw_message_delete(SimpleNamespace(guild_id=payload.guild_id,
+                channel_id=payload.channel_id, message_id=ident))
 
     async def on_message(self, message):
         if self.access is None or self.user is None or message.author.bot or message.webhook_id:

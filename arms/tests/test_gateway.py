@@ -235,6 +235,27 @@ def test_interests_destination_and_explicit_private_attachments(setup):
     asyncio.run(run())
 
 
+def test_raw_clear_and_message_delete_withdraw_feedback(setup):
+    from research_arms.feedback import record, view
+    from test_discussion_worker import answered
+    from test_feedback import Emoji
+    arms, spaces = setup
+    _, delivery = answered(arms)
+    arms.confirm_delivery(delivery["delivery_id"], "200")
+    scope = spaces.scope("alice", conversation_id="feedback", writable_space="project")
+    args = {"guild": "10", "channel": "21", "message": "200", "emoji": "🔥", "active": True}
+    async def run():
+        client = ResearchGateway(arms, "/unused/pi")
+        try:
+            payload = SimpleNamespace(guild_id=10, channel_id=21, message_id=200, emoji=Emoji())
+            for handler in (client.on_raw_reaction_clear_emoji, client.on_raw_reaction_clear, client.on_raw_message_delete):
+                record(arms, scope, **args)
+                await handler(payload)
+                assert not view(arms, scope, shared=True)["items"]
+        finally: await client.close()
+    asyncio.run(run())
+
+
 def test_raw_delete_handlers_ignore_untracked_messages_and_deduplicate(setup):
     from test_discussion_worker import answered
     arms, _ = setup
