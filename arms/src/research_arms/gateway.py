@@ -77,6 +77,9 @@ class ResearchGateway(discord.Client):
         self._commands()
 
     def _commands(self):
+        @self.tree.command(name="delivery-recover", description="Confirm an existing answer to your turn; never resend")
+        async def delivery_recover(interaction: discord.Interaction, turn_id: str, answer_message_id: str):
+            await self.execute(interaction, "delivery_recover", turn_id=turn_id, answer_message_id=answer_message_id)
         @self.tree.command(name="fork-recover", description="Adopt an exact verified partial fork; never recreate or rewrite sessions")
         async def fork_recover(interaction: discord.Interaction, request_id: str):
             await self.execute(interaction, "fork_recover", request_id=request_id)
@@ -372,6 +375,23 @@ class ResearchGateway(discord.Client):
 
     async def handle(self, command, actor, channel, guild, message_id, destination, **options):
         """Internal authenticated handler; never expose caller-supplied destination data."""
+        if command == "delivery_recover":
+            ident = options["turn_id"]
+            if not isinstance(ident, str) or not 1 <= len(ident) <= 100:
+                raise Unavailable()
+            with self.registry.connect(readonly=True) as db:
+                row = db.execute("SELECT t.*,o.id AS delivery_id,o.state AS delivery_state FROM turns t JOIN outbox o ON o.turn_id=t.id WHERE t.id=?", (ident,)).fetchone()
+                if row is None or row["delivery_state"] != "UNKNOWN": raise Unavailable()
+                _, scope = self.registry._authorized(db, row["conversation_id"], actor, channel, guild,
+                    statuses=("OPEN", "STOPPED", "NEEDS_ATTENTION"))
+                if row["author"] != scope.principal or scope.writable_space != destination["space_id"]:
+                    raise Unavailable()
+            async def authorize(remote_guild, remote_channel):
+                await self.access.authorize(actor, channel_id=channel, guild_id=guild, expected_space=destination["space_id"])
+                return remote_guild == guild and remote_channel == channel
+            sender = DiscordSender(self.registry, self.rest, str(self.user.id), authorize)
+            recovered = await sender.reconcile(row["delivery_id"], options["answer_message_id"])
+            return {"answer_message_id": recovered, "notice": "Existing answer confirmed. No message was resent or model called."}
         if command == "fork_recover":
             async def authorize():
                 await self.access.authorize(actor, channel_id=channel, guild_id=guild, expected_space=destination["space_id"])

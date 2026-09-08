@@ -386,6 +386,11 @@ It requires a transport-provided current Discord audience/permission check;
 local Brain membership alone is insufficient. Every failed or ambiguous send
 remains UNKNOWN without automatic retry. `reconcile` reads one exact remote
 message and checks author, channel and nonce before confirming it, never resending.
+Use `/delivery-recover turn_id:... answer_message_id:...` in the original
+destination to recover an UNKNOWN delivery of your own turn. It cannot adopt
+an active SENDING delivery, another author's turn, or an answer in another
+channel. Current access is checked before and after the remote read. Missing
+or unverifiable messages remain unresolved; the command never resends them.
 Discord nonce deduplication is time-limited, not a substitute for durable outbox
 state. See the [Discord message API](https://docs.discord.com/developers/resources/message).
 Tests use fake HTTP responses; no live Discord send has been performed.

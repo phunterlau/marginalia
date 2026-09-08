@@ -25,11 +25,48 @@ class Interaction:
     async def edit_original_response(self, **kwargs): self.output = kwargs["content"]
 
 
+@pytest.mark.parametrize("actor,channel,state,allowed", [("1", "21", "UNKNOWN", True),
+    ("2", "21", "UNKNOWN", False), ("1", "22", "UNKNOWN", False), ("1", "21", "SENDING", False)])
+def test_delivery_recovery_is_author_and_destination_scoped(setup, actor, channel, state, allowed):
+    from test_registry import shared, turn
+    from research_arms import Unavailable
+    arms, _ = setup
+    ident = turn(arms, shared(arms))
+    arms.claim()
+    arms.save_answer(ident, "answer", "entry")
+    delivery = arms.begin_delivery(ident)
+    if state == "UNKNOWN": arms.delivery_unknown(delivery["delivery_id"])
+    calls = []
+    class Rest:
+        async def get(self, route):
+            calls.append(route)
+            return SimpleNamespace(status_code=200, json=lambda: {"id": "333", "channel_id": "21",
+                "author": {"id": "123"}, "nonce": delivery["nonce"]})
+    async def run():
+        client = ResearchGateway(arms, "/unused/pi")
+        client._connection.user = SimpleNamespace(id=123)
+        client.rest, client.access = Rest(), Access()
+        try:
+            if allowed:
+                result = await client.handle("delivery_recover", actor, channel, "10", "900",
+                    {"space_id": "project"}, turn_id=ident, answer_message_id="333")
+                assert result["answer_message_id"] == "333"
+            else:
+                with pytest.raises(Unavailable):
+                    await client.handle("delivery_recover", actor, channel, "10", "900",
+                        {"space_id": "project"}, turn_id=ident, answer_message_id="333")
+            assert len(calls) == int(allowed)
+        finally:
+            client.rest = None
+            await client.close()
+    asyncio.run(run())
+
+
 def test_native_command_registration_is_offline_and_minimal(setup):
     arms, _ = setup
     async def run():
         client = ResearchGateway(arms, "/unused/pi")
-        assert {cmd.name for cmd in client.tree.get_commands()} == {"new", "resume", "fork", "fork-recover", "session", "space", "ask", "stop", "paper", "card", "publish", "discussed", "recall", "compare", "brainstorm", "save", "frontier", "interests", "deep-dive"}
+        assert {cmd.name for cmd in client.tree.get_commands()} == {"new", "resume", "fork", "fork-recover", "delivery-recover", "session", "space", "ask", "stop", "paper", "card", "publish", "discussed", "recall", "compare", "brainstorm", "save", "frontier", "interests", "deep-dive"}
         assert {cmd.name for cmd in client.tree.get_command("publish").commands} == {"prepare", "show", "consent", "approve", "cancel", "run"}
         assert {cmd.name for cmd in client.tree.get_command("card").commands} == {"show", "review"}
         assert {cmd.name for cmd in client.tree.get_command("paper").commands} == {"status", "brief", "cards", "evidence", "job", "approve", "add", "submission", "thread", "reconcile"}
