@@ -82,6 +82,14 @@ class Brain:
         record = self.get_research_object(stable_id("obj", "publication", digest))
         return record["structured"] if record and record["kind"] == "publication_receipt" else None
 
+    def record_discussion(self, record: dict[str, Any]) -> dict[str, Any]:
+        from .discussions import record as append
+        return append(self.store, record)
+
+    def search_discussions(self, query: str, *, limit: int = 5) -> dict[str, Any]:
+        from .discussions import search
+        return search(self.store, query, limit=limit)
+
     def paper_overview(self, document_id: str) -> dict[str, Any]:
         """Bounded metadata-only view; not a model-generated scientific summary."""
         document = self.get_document(document_id)

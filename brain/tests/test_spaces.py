@@ -63,7 +63,7 @@ def test_path_identifiers_and_overlapping_roots_rejected(registry):
 def test_open_never_migrates_or_initializes(registry, tmp_path):
     root = registry.get("personal")["root"]
     with sqlite3.connect(f"{root}/brain.sqlite3") as db:
-        db.execute("DELETE FROM schema_migrations WHERE version=2")
+        db.execute("DELETE FROM schema_migrations WHERE version>=2")
     with pytest.raises(ValueError, match="Incompatible"):
         registry.open("personal")
     with sqlite3.connect(f"{root}/brain.sqlite3") as db:

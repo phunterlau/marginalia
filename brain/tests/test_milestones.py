@@ -105,7 +105,7 @@ class MilestoneTests(unittest.TestCase):
         self.assertTrue(first.created_compilation)
         self.assertFalse(second.created_compilation)
         with sqlite3.connect(self.brain.store.path) as connection:
-            self.assertEqual(connection.execute("SELECT max(version) FROM schema_migrations").fetchone()[0], 2)
+            self.assertEqual(connection.execute("SELECT max(version) FROM schema_migrations").fetchone()[0], 3)
             self.assertEqual(connection.execute("SELECT count(*) FROM document_compilations").fetchone()[0], 1)
         hit = next(item for item in self.brain.search("paired contrast") if item.record_type == "document_block")
         evidence = self.brain.get_evidence(hit.record_id)

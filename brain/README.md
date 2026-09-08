@@ -1,5 +1,29 @@
 # Research Brain
 
+## Discussion projection API
+
+`Brain.record_discussion(record)` stores a bounded, attributed bot-directed
+exchange as an immutable revision. `Brain.search_discussions(query, limit=5)`
+searches only the latest non-deleted revision using deterministic lexical ranking.
+Results distinguish the question's author from the assistant, include Discord
+message links and Pi entry identity, and report omitted text. A missing result
+does not mean the topic was never discussed. Discussion records live in separate
+tables and never enter scientific `search`/`recall` or become accepted cards.
+
+`SpaceRegistry.record_discussion(scope, record)` is a trusted transport projection
+interface: it checks author, conversation, personal/shared audience and current
+authorization before writing only to the writable space. Scoped reads use
+`SpaceRegistry.read(scope, space_id, "search_discussions", query)`. Pi's existing
+read-only tools do not yet expose this operation. Arms outbox projection, Discord
+edit/deletion events and `/discussed` integration remain separate pending work;
+these Python APIs do not download Discord history.
+
+Schema migration 003 adds the index. Existing databases fail closed until an
+explicit backed-up migration, for example `research --root /absolute/brain-data
+migrate --backup /absolute/new-backup-directory`. Stop active workers first.
+No existing local corpus is migrated merely by installing this code. New empty
+Brain databases include the schema automatically.
+
 ## Approved paper absorption
 
 The [scoped absorption CLI](docs/absorption.md) turns an arXiv URL into source

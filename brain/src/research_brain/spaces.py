@@ -209,10 +209,21 @@ class SpaceRegistry:
         Arms must additionally bind the supplied scope to its authenticated session.
         """
         allowed = {"get_document", "get_evidence", "get_research_object", "recall", "search",
-                   "read_object_field", "read_evidence_field", "paper_overview", "paper_cards"}
+                   "read_object_field", "read_evidence_field", "paper_overview", "paper_cards", "search_discussions"}
         if operation not in allowed or kwargs.get("semantic_live"):
             raise PermissionError("Operation unavailable")
         self.validate(scope, space_id=space_id)
         result = getattr(self.open(space_id), operation)(*args, **kwargs)
         self.validate(scope, space_id=space_id)
         return {"space_id": space_id, "result": result}
+
+    def record_discussion(self, scope: ContextScope, record: dict):
+        """Trusted transport projection only; not exposed through read operations."""
+        if record.get("author") != scope.principal or record.get("conversation_id") != scope.conversation_id:
+            raise PermissionError("Discussion attribution does not match scope")
+        with self.connect() as policy:
+            policy.execute("BEGIN IMMEDIATE")
+            self.validate(scope)
+            if (record.get("guild_id") is None) != scope.audience.startswith("personal:"):
+                raise PermissionError("Discussion audience mismatch")
+            return self.open(scope.writable_space).record_discussion(record)

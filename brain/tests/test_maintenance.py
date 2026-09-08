@@ -91,7 +91,7 @@ def test_existing_schema_never_migrates_implicitly_and_explicit_migration_has_ba
     snapshot = tmp_path / "pre-migration"
     result = maintenance.migrate(root, snapshot)
     assert result["migrated"]
-    assert result["health"]["schema_versions"] == [1, 2]
+    assert result["health"]["schema_versions"] == [1, 2, 3]
     with maintenance.database(snapshot / "brain.sqlite3") as db:
         assert [r[0] for r in db.execute("SELECT version FROM schema_migrations")] == [1]
     SQLiteStore(path, initialize=False)
