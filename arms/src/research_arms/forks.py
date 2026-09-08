@@ -42,7 +42,8 @@ def prepare(registry, source_id, turn_id, actor, *, channel_id, guild_id, reques
 
 async def fork_conversation(supervisor, *, source_id, turn_id, actor, channel_id,
                             request_id, name="Research fork", guild_id=None,
-                            node, sdk_module, fork_factory=fork_completed_session):
+                            node, sdk_module, fork_factory=fork_completed_session,
+                            authorize=None):
     """No destination space parameter: copying private history to shared is forbidden.
 
     Pending/failed requests require inspection, never automatic filesystem replay.
@@ -52,6 +53,8 @@ async def fork_conversation(supervisor, *, source_id, turn_id, actor, channel_id
     async with supervisor.lock:
         if supervisor.closed:
             raise RuntimeError("Supervisor closed")
+        if authorize is not None:
+            await authorize()
         job, fresh = prepare(registry, source_id, turn_id, actor, channel_id=channel_id,
                              guild_id=guild_id, request_id=request_id, name=name)
         if not fresh:
@@ -74,6 +77,8 @@ async def fork_conversation(supervisor, *, source_id, turn_id, actor, channel_id
                 raise ValueError("Exact source session unavailable")
             result = await fork_factory(node=node, sdk_module=sdk_module, source=files[0],
                 destination=base / job["target_id"], session_id=source["pi_session_id"], entry_id=entry)
+            if authorize is not None:
+                await authorize()
             with registry.connect() as db:
                 db.execute("BEGIN IMMEDIATE")
                 registry._authorized(db, job["target_id"], actor, channel_id, guild_id, statuses=("FORKING",))

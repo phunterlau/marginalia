@@ -95,6 +95,28 @@ def test_fork_rejects_wrong_destination_before_session_access(setup):
     asyncio.run(run())
 
 
+def test_transport_revocation_during_fork_never_activates(setup):
+    arms, _ = setup
+    conv, ident = source_fixture(arms)
+    checks = []
+    async def authorize():
+        checks.append(True)
+        if len(checks) == 2: raise Unavailable()
+    async def factory(**kwargs): return {"session_id": str(uuid.uuid4())}
+    async def run():
+        supervisor = Supervisor(arms, "/unused/pi")
+        try:
+            with pytest.raises(Unavailable):
+                await fork_conversation(supervisor, source_id=conv, turn_id=ident, actor="1",
+                    channel_id="21", guild_id="10", request_id="revoked", node="/unused/node",
+                    sdk_module="/unused/sdk", fork_factory=factory, authorize=authorize)
+            with arms.connect(readonly=True) as db:
+                assert db.execute("SELECT state FROM session_forks").fetchone()[0] == "NEEDS_ATTENTION"
+                assert db.execute("SELECT status FROM conversations WHERE id!=?", (conv,)).fetchone()[0] == "NEEDS_ATTENTION"
+        finally: await supervisor.close()
+    asyncio.run(run())
+
+
 @pytest.mark.skipif(not os.environ.get("ARMS_TEST_PI"), reason="Optional installed Pi SDK test")
 def test_native_coordinator_preserves_exact_completed_history(setup):
     arms, _ = setup

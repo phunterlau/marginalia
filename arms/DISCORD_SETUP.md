@@ -70,6 +70,13 @@ login, with built-in tools and implicit resources disabled.
 5. `/resume conversation_id:...` explicitly switches selection. `/stop` cancels
    queued work and interrupts the active turn; interrupted context cannot silently
    resume. Normal idle conversations remain usable.
+   `/fork answer_message_id:... name:...` branches at that exact completed bot
+   answer in this channel/DM and selects the new conversation. Enable Discord
+   Developer Mode to copy the answer's message ID. This does not copy later turns
+   or broaden access. The original conversation remains available. Failed partial
+   forks require local reconciliation rather than automatic retry. Branching
+   requires local Node and the Pi SDK; trusted backend flags `--fork-node` and
+   `--fork-sdk` can override their detected paths.
 6. A DM or explicit bot mention continues the selected conversation. Replying
    to a recorded bot answer selects its mapped conversation and supplies the
    exact stored answer as a bounded quote. Unknown reply anchors do not fall back

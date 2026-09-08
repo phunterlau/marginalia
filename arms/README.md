@@ -142,7 +142,16 @@ NEEDS_ATTENTION and are never automatically replayed. Scope changes require a
 fresh conversation, not copying old context into a narrower or shared audience.
 The first child turn verifies that its inherited answer exists in Pi history.
 Native SDK/coordinator tests exclude future canary history without model calls.
-Discord handlers and user-facing partial-fork reconciliation are still pending.
+The Discord `/fork answer_message_id:... name:...` command uses this coordinator
+and selects the resulting conversation. The answer must have been delivered in
+the current channel/DM; private history cannot be branched into a shared channel.
+Discord access is refreshed before branching and before activation. A transport
+permission change quarantines the partial fork. The interaction ID makes retries
+idempotent. User-facing partial-fork reconciliation is still pending.
+
+Branching uses the local Node executable and `index.js` beside the resolved Pi
+executable by default. Backend administrators can override these with
+`--fork-node` and `--fork-sdk`; Discord callers cannot supply filesystem paths.
 
 Delivery claims persist SENDING before external dispatch and distinguish UNKNOWN
 from DELIVERED. Confirmations are idempotent; uncertain sends require explicit
@@ -235,7 +244,7 @@ limits and does not itself run model work. No live scoped absorption has
 been performed through this service.
 
 This is a partial pilot, **not a validated live deployment**. Automatic paper-thread
-creation, Discord fork/reconciliation controls, publication consent,
+creation, Discord reconciliation controls, publication consent,
 scientific reviews, discussion search and reactions still need integration.
 The delivery and permissions paths are mock-tested, not live-tested. There is no
 HTTP listener, installed daemon or LaunchAgent.

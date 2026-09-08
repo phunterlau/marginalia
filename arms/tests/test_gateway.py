@@ -29,7 +29,7 @@ def test_native_command_registration_is_offline_and_minimal(setup):
     arms, _ = setup
     async def run():
         client = ResearchGateway(arms, "/unused/pi")
-        assert {cmd.name for cmd in client.tree.get_commands()} == {"new", "resume", "session", "space", "ask", "stop", "paper"}
+        assert {cmd.name for cmd in client.tree.get_commands()} == {"new", "resume", "fork", "session", "space", "ask", "stop", "paper"}
         assert {cmd.name for cmd in client.tree.get_command("paper").commands} == {"status", "brief", "cards", "evidence", "job", "approve", "add", "submission", "thread"}
         assert client.intents.guilds and not client.intents.message_content and not client.intents.members
         assert client.supervisor is None and client.pump is None
@@ -171,5 +171,39 @@ def test_paper_approval_requires_confirmation_and_passes_exact_scope(setup):
             assert calls == []
             result = await client.handle(*args, job_id="job_x", plan_digest="digest", confirm=True)
             assert result["status"] == "QUEUED" and calls == [("job_x", "digest", True)]
+        finally: await client.close()
+    asyncio.run(run())
+
+
+def test_fork_routes_exact_delivered_answer_and_rejects_wrong_channel(setup):
+    import uuid
+    from research_arms.forks import fork_conversation
+    from research_arms.worker import Supervisor
+    from research_arms import Unavailable
+    from test_forks import source_fixture
+    arms, _ = setup
+    source, turn = source_fixture(arms)
+    delivery = arms.begin_delivery(turn)
+    arms.confirm_delivery(delivery["delivery_id"], "500")
+    calls = []
+    async def factory(**kwargs):
+        calls.append(kwargs)
+        return {"session_id": str(uuid.uuid4())}
+    async def handler(supervisor, **kwargs):
+        return await fork_conversation(supervisor, **kwargs, fork_factory=factory)
+    async def run():
+        client = ResearchGateway(arms, "/unused/pi", fork_node="/unused/node", fork_handler=handler)
+        client.supervisor = Supervisor(arms, "/unused/pi")
+        client.access = Access()
+        destination = {"space_id": "project"}
+        args = ("fork", "1", "21", "10", "600", destination)
+        try:
+            first = await client.handle(*args, answer_message_id="500", name="Branch")
+            second = await client.handle(*args, answer_message_id="500", name="Branch")
+            assert first == second and first["conversation_id"] != source
+            assert first["read_spaces"] == ["project"] and len(calls) == 1
+            with pytest.raises(Unavailable):
+                await client.handle("fork", "1", "30", None, "601", {"space_id": "alice"}, answer_message_id="500", name="Leak")
+            assert len(calls) == 1
         finally: await client.close()
     asyncio.run(run())

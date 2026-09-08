@@ -5,6 +5,8 @@ import json
 import hashlib
 import io
 import os
+from pathlib import Path
+import shutil
 
 import discord
 from discord import app_commands
@@ -19,12 +21,15 @@ from .absorption import ScopedAbsorption
 from .submissions import PaperSubmissions
 from .paid_worker import PaidAbsorptionWorker
 from .paper_threads import PaperThreads
+from .forks import fork_conversation
+from .registry import snowflake
 from research_brain.jobs import SpendingLimits
 
 
 class ResearchGateway(discord.Client):
     def __init__(self, registry, pi_executable, *, sync_commands=False, rest_client=None,
-                 absorption_factory=ScopedAbsorption, run_approved_absorption=False):
+                 absorption_factory=ScopedAbsorption, run_approved_absorption=False,
+                 fork_node=None, fork_sdk=None, fork_handler=fork_conversation):
         intents = discord.Intents.none()
         intents.guilds = True
         intents.guild_messages = True
@@ -35,6 +40,9 @@ class ResearchGateway(discord.Client):
         self.sync_commands = sync_commands
         self.absorption_factory = absorption_factory
         self.run_approved_absorption = run_approved_absorption
+        self.fork_node = fork_node or shutil.which("node")
+        self.fork_sdk = fork_sdk or str(Path(pi_executable).resolve().parent / "index.js")
+        self.fork_handler = fork_handler
         self.paid_worker = self.paid_task = None
         self.rest = rest_client
         self.access = self.supervisor = self.pump = None
@@ -79,6 +87,10 @@ class ResearchGateway(discord.Client):
         @self.tree.command(name="resume", description="Select an exact existing research conversation ID")
         async def resume(interaction: discord.Interaction, conversation_id: str):
             await self.execute(interaction, "resume", conversation_id=conversation_id)
+
+        @self.tree.command(name="fork", description="Branch from an exact completed bot answer in this channel")
+        async def fork(interaction: discord.Interaction, answer_message_id: str, name: str = "Research fork"):
+            await self.execute(interaction, "fork", answer_message_id=answer_message_id, name=name)
 
         @self.tree.command(name="session", description="Show the explicitly selected research conversation")
         async def session(interaction: discord.Interaction):
@@ -200,6 +212,26 @@ class ResearchGateway(discord.Client):
 
     async def handle(self, command, actor, channel, guild, message_id, destination, **options):
         """Internal authenticated handler; never expose caller-supplied destination data."""
+        if command == "fork":
+            answer = snowflake(options["answer_message_id"])
+            if self.supervisor is None or self.fork_node is None: raise Unavailable()
+            with self.registry.connect(readonly=True) as db:
+                rows = db.execute("SELECT t.id,t.conversation_id FROM outbox o JOIN turns t ON t.id=o.turn_id JOIN conversations c ON c.id=t.conversation_id WHERE o.discord_message_id=? AND o.state='DELIVERED' AND t.status='ANSWERED' AND c.channel_id=? AND c.guild_id IS ?",
+                    (answer, channel, guild)).fetchall()
+                if len(rows) != 1: raise Unavailable()
+                source = rows[0]
+                self.registry._authorized(db, source["conversation_id"], actor, channel, guild,
+                    statuses=("OPEN", "STOPPED", "NEEDS_ATTENTION"))
+            async def authorize():
+                await self.access.authorize(actor, channel_id=channel, guild_id=guild,
+                    expected_space=destination["space_id"])
+            ident = await self.fork_handler(self.supervisor, source_id=source["conversation_id"],
+                turn_id=source["id"], actor=actor, channel_id=channel, guild_id=guild,
+                request_id=message_id, name=options["name"], node=self.fork_node,
+                sdk_module=self.fork_sdk, authorize=authorize)
+            await authorize()
+            self.registry.select_conversation(ident, actor, channel_id=channel, guild_id=guild)
+            return self.registry.resolve_conversation(actor, channel_id=channel, guild_id=guild)
         if command == "paper_thread":
             if guild is None: raise ValueError("Paper threads require a shared guild channel")
             parent = destination["parent_channel_id"] or channel
@@ -323,6 +355,8 @@ def main():
     parser.add_argument("--root", required=True, help="Existing Arms operational directory")
     parser.add_argument("--spaces-root", required=True, help="Existing Brain space registry")
     parser.add_argument("--pi", required=True, help="Absolute Pi executable")
+    parser.add_argument("--fork-node", help="Trusted absolute Node executable for session branching (defaults to local node)")
+    parser.add_argument("--fork-sdk", help="Trusted absolute Pi SDK index.js (defaults beside the resolved Pi executable)")
     parser.add_argument("--connect", action="store_true", help="Explicitly connect to Discord")
     parser.add_argument("--sync-commands", action="store_true", help="Replace this bot application's global commands")
     parser.add_argument("--run-approved-absorption", action="store_true", help="Execute explicitly approved scoped absorption jobs")
@@ -332,7 +366,8 @@ def main():
     if not token: parser.error("DISCORD_BOT_TOKEN is required in the backend environment")
     registry = ArmsRegistry(args.root, SpaceRegistry(args.spaces_root))
     client = ResearchGateway(registry, args.pi, sync_commands=args.sync_commands,
-                             run_approved_absorption=args.run_approved_absorption)
+                             run_approved_absorption=args.run_approved_absorption,
+                             fork_node=args.fork_node, fork_sdk=args.fork_sdk)
     client.run(token, log_handler=None)
 
 

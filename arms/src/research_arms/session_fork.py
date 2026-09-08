@@ -1,7 +1,7 @@
 """Trusted local Pi session branching primitive, not an authorization interface.
 
-The future fork coordinator must authorize the source and destination, stop the
-source worker, and durably stage the destination binding before invoking this.
+The fork coordinator authorizes the source and destination, stops the source
+worker, and durably stages the destination binding before invoking this.
 Never pass Discord/model supplied paths to this function.
 """
 import asyncio
