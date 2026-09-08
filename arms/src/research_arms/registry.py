@@ -44,7 +44,7 @@ def visibility(scope):
 
 
 class ArmsRegistry:
-    VERSION = 1
+    VERSION = 2
 
     def __init__(self, root, spaces: SpaceRegistry, *, create=False):
         self.root = Path(root).resolve()
@@ -56,7 +56,7 @@ class ArmsRegistry:
             with self.connect(create=True) as db:
                 db.executescript("""
                     CREATE TABLE meta(version INTEGER NOT NULL);
-                    INSERT INTO meta VALUES (1);
+                    INSERT INTO meta VALUES (2);
                     CREATE TABLE principals(discord_user TEXT PRIMARY KEY, principal TEXT UNIQUE NOT NULL,
                                             personal_space TEXT NOT NULL);
                     CREATE TABLE channels(guild_id TEXT NOT NULL, channel_id TEXT NOT NULL,
@@ -79,6 +79,8 @@ class ArmsRegistry:
                         created_at TEXT NOT NULL);
                     CREATE TABLE events(id INTEGER PRIMARY KEY, kind TEXT NOT NULL,
                                         subject TEXT NOT NULL, at TEXT NOT NULL);
+                    CREATE TABLE conversation_routes(route_key TEXT PRIMARY KEY,
+                        conversation_id TEXT NOT NULL REFERENCES conversations(id));
                 """)
         with self.connect(readonly=True) as db:
             if [r[0] for r in db.execute("SELECT version FROM meta")] != [self.VERSION]:
@@ -199,6 +201,47 @@ class ArmsRegistry:
             db.execute("INSERT INTO turns(id,conversation_id,discord_message_id,author,scope_json,prompt,anchor_turn_id,created_at) VALUES (?,?,?,?,?,?,?,?)",
                        (turn, conversation_id, message_id, scope.principal, encode(asdict(scope)), prompt, anchor_turn_id, now()))
             return turn
+
+    @staticmethod
+    def _route_key(discord_user, channel_id, guild_id):
+        snowflake(discord_user), snowflake(channel_id)
+        if guild_id is not None:
+            snowflake(guild_id)
+        return encode([guild_id, channel_id, discord_user if guild_id is None else None])
+
+    def select_conversation(self, conversation_id, discord_user, *, channel_id, guild_id=None):
+        """Explicit new/resume selection. Never resumes stopped or revoked context."""
+        key = self._route_key(discord_user, channel_id, guild_id)
+        with self.connect() as db:
+            db.execute("BEGIN IMMEDIATE")
+            self._authorized(db, conversation_id, discord_user, channel_id, guild_id)
+            db.execute("INSERT INTO conversation_routes VALUES (?,?) ON CONFLICT(route_key) DO UPDATE SET conversation_id=excluded.conversation_id", (key, conversation_id))
+            db.execute("INSERT INTO events(kind,subject,at) VALUES ('conversation_selected',?,?)", (conversation_id, now()))
+
+    def resolve_conversation(self, discord_user, *, channel_id, guild_id=None, reply_message_id=None):
+        """Resolve an explicit bot-answer reply or the displayed active binding.
+
+        Reply selection does not change the active DM binding. A missing reply
+        never falls through to an unrelated conversation.
+        """
+        key = self._route_key(discord_user, channel_id, guild_id)
+        with self.connect(readonly=True) as db:
+            anchor = None
+            if reply_message_id is not None:
+                snowflake(reply_message_id)
+                matches = db.execute("SELECT t.id,t.conversation_id FROM outbox o JOIN turns t ON t.id=o.turn_id JOIN conversations c ON c.id=t.conversation_id WHERE o.discord_message_id=? AND o.state='DELIVERED' AND c.channel_id=? AND c.guild_id IS ?", (reply_message_id, channel_id, guild_id)).fetchall()
+                if len(matches) != 1:
+                    raise Unavailable()
+                conversation_id, anchor = matches[0]["conversation_id"], matches[0]["id"]
+            else:
+                route = db.execute("SELECT conversation_id FROM conversation_routes WHERE route_key=?", (key,)).fetchone()
+                if route is None:
+                    raise Unavailable()
+                conversation_id = route[0]
+            row, scope = self._authorized(db, conversation_id, discord_user, channel_id, guild_id)
+            return {"conversation_id": conversation_id, "anchor_turn_id": anchor,
+                    "name": row["name"], "audience": scope.audience,
+                    "writable_space": scope.writable_space, "read_spaces": list(scope.read_spaces)}
 
     def _turn_scope(self, db, turn_id):
         row = db.execute("SELECT t.*,c.status AS conversation_status,c.visibility_digest FROM turns t JOIN conversations c ON c.id=t.conversation_id WHERE t.id=?", (turn_id,)).fetchone()

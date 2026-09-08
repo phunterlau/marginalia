@@ -21,6 +21,13 @@ Keep operational databases, source archives, backups, credentials and Pi session
 outside the checkout. `ArmsRegistry(..., create=True)` explicitly creates a new
 operational registry; ordinary opening never initializes or migrates a database.
 
+Registry version 2 adds explicit conversation routing. For an existing version-1
+registry, stop workers first and invoke the trusted local
+`research_arms.migrations.migrate_v1_to_v2(root)` function. It refuses a held
+worker lock or RUNNING claims, verifies a private SQLite backup, then migrates
+transactionally. It returns the backup path (or `None` if already current).
+Opening an old registry does not perform this operation automatically.
+
 ## Current library contract
 
 `research_arms.ArmsRegistry` uses only Brain's public `SpaceRegistry` interface.
@@ -35,6 +42,15 @@ cannot bind personal spaces. A DM can attach explicitly selected shared spaces.
 Each conversation has a permanent visibility digest and dedicated Pi session ID.
 Different authorized authors share the same shared conversation, while every
 turn stores its own acting principal and immutable ContextScope.
+
+`select_conversation` explicitly selects an authorized OPEN conversation for a
+DM user/channel or shared channel. `resolve_conversation` returns that binding,
+its audience and read spaces; it never guesses from titles or recency. Replies
+to delivered bot answers resolve their exact conversation and quoted-turn
+anchor without changing the active DM selection. Missing anchors fail closed.
+Transport handlers must display active selections, authenticate Discord events,
+and route paper-starter replies into their paper threads; starter mapping is
+still pending. These library methods are not installed Discord commands.
 
 `enqueue` retains only explicitly forwarded bot-directed turns. Duplicate
 message delivery is idempotent; changed message content requires a separate edit
