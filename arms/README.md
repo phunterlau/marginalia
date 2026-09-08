@@ -53,12 +53,36 @@ from structured results. Policy changes invalidate contaminated scopes;
 `revoke_stale` quarantines their pending work/deliveries and returns the session
 IDs a future supervisor must abort. It does not itself terminate processes.
 
+## Pi RPC and delivery primitives
+
+`research_arms.pi_rpc.PiRPC` launches Pi without a shell, uses an exact session
+UUID and backend session directory, disables built-in tools and implicit
+extensions/skills/templates/context files, and disables automatic retries. This
+initial client exposes **no research tools yet**. A scope-bound extension and
+supervisor still need to be connected. Environment API keys are excluded; Pi's
+configured login is the intended authentication route for future synthesis.
+
+Responses are correlated by request ID. Frames use bounded LF-only JSONL.
+Prompts wait for `agent_settled`, not the earlier `agent_end` event. Timeouts
+terminate the client and require preserving uncertainty, never automatic replay.
+`abort` clears Pi's queue first. Raw bash/session-switch/export RPC commands are
+unavailable. Tests use synthetic subprocesses. A native installed-Pi startup
+check also succeeded with zero model prompts and an isolated configuration.
+
+Delivery claims persist SENDING before external dispatch and distinguish UNKNOWN
+from DELIVERED. Confirmations are idempotent; uncertain sends require explicit
+remote reconciliation and are never automatically resent. `validate_delivery`
+checks current scope before a future adapter sends. These methods send nothing
+themselves; the adapter must enforce actual audience permissions and suppress
+mentions. Recovery requires prior verification that old workers are stopped,
+quarantines interrupted conversations, and marks interrupted sends UNKNOWN.
+
 ## Boundaries still to implement
 
 This is an offline control-plane foundation, **not a running Discord bot**.
 Gateway authentication/handlers, default active-DM and paper-thread routing,
-forks, Pi RPC supervision and capability binding, stop/recovery, actual delivery
-and uncertain-send reconciliation, publication consent, scientific reviews,
+forks, the Pi process pool and scope-bound tools, user-facing stop/recovery,
+actual delivery and remote reconciliation, publication consent, scientific reviews,
 discussion search and reactions are not yet connected. Outbox insertion is
 tested, not external delivery. There is no HTTP listener, daemon or LaunchAgent.
 

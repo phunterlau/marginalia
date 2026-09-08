@@ -307,3 +307,78 @@ class ArmsRegistry:
                     db.execute("UPDATE outbox SET state='REVOKED' WHERE state!='DELIVERED' AND turn_id IN (SELECT id FROM turns WHERE conversation_id=?)", (conversation["id"],))
                     db.execute("INSERT INTO events(kind,subject,at) VALUES ('scope_revoked',?,?)", (conversation["id"], now()))
         return sessions
+
+    def begin_delivery(self, turn_id):
+        """Claim one pending delivery. The adapter must revalidate at send time.
+
+        SENDING/UNKNOWN are never automatically returned for another send.
+        Transport must use this stable nonce and suppress generated mentions.
+        """
+        with self.connect() as db:
+            db.execute("BEGIN IMMEDIATE")
+            turn, _ = self._turn_scope(db, turn_id)
+            if turn["status"] != "ANSWERED":
+                raise Unavailable()
+            outbox = db.execute("SELECT * FROM outbox WHERE turn_id=?", (turn_id,)).fetchone()
+            if outbox is None or outbox["state"] != "PENDING":
+                return None
+            destination = db.execute("SELECT guild_id,channel_id FROM conversations WHERE id=?", (turn["conversation_id"],)).fetchone()
+            db.execute("UPDATE outbox SET state='SENDING' WHERE id=?", (outbox["id"],))
+            db.execute("INSERT INTO events(kind,subject,at) VALUES ('delivery_dispatched',?,?)", (outbox["id"], now()))
+            return {"delivery_id": outbox["id"], "turn_id": turn_id, "answer": turn["answer"],
+                    "guild_id": destination["guild_id"], "channel_id": destination["channel_id"],
+                    "nonce": str(int(hashlib.sha256(outbox["id"].encode()).hexdigest()[:16], 16))}
+
+    def validate_delivery(self, delivery_id):
+        """Last local authorization check before transport; not a send itself."""
+        with self.connect(readonly=True) as db:
+            row = db.execute("SELECT * FROM outbox WHERE id=?", (delivery_id,)).fetchone()
+            if row is None or row["state"] != "SENDING":
+                raise Unavailable()
+            self._turn_scope(db, row["turn_id"])
+
+    def delivery_unknown(self, delivery_id):
+        with self.connect() as db:
+            db.execute("BEGIN IMMEDIATE")
+            changed = db.execute("UPDATE outbox SET state='UNKNOWN' WHERE id=? AND state='SENDING'", (delivery_id,)).rowcount
+            if changed:
+                db.execute("INSERT INTO events(kind,subject,at) VALUES ('delivery_uncertain',?,?)", (delivery_id, now()))
+
+    def confirm_delivery(self, delivery_id, discord_message_id, *, reconciled=False):
+        """Record a confirmed remote outcome, even if access was revoked meanwhile.
+
+        This emits no message and exposes no answer. Reconciliation requires a
+        transport-verified remote message, never an assumption that a send failed.
+        """
+        snowflake(discord_message_id)
+        with self.connect() as db:
+            db.execute("BEGIN IMMEDIATE")
+            row = db.execute("SELECT * FROM outbox WHERE id=?", (delivery_id,)).fetchone()
+            if row is None:
+                raise Unavailable()
+            if row["state"] == "DELIVERED":
+                if row["discord_message_id"] != discord_message_id:
+                    raise ValueError("Delivery confirmation conflicts")
+                return
+            if row["state"] not in {"SENDING", "UNKNOWN", "REVOKED"} or row["state"] != "SENDING" and not reconciled:
+                raise ValueError("Explicit reconciliation required")
+            db.execute("UPDATE outbox SET state='DELIVERED',discord_message_id=? WHERE id=?", (discord_message_id, delivery_id))
+            db.execute("INSERT INTO events(kind,subject,at) VALUES (?, ?, ?)",
+                       ("delivery_reconciled" if reconciled else "delivery_confirmed", delivery_id, now()))
+
+    def recover_stopped_workers(self, *, confirmed_stopped=False):
+        """Trusted supervisor operation only after verifying old processes stopped."""
+        if confirmed_stopped is not True:
+            raise ValueError("Verify prior workers are stopped before recovery")
+        with self.connect() as db:
+            db.execute("BEGIN IMMEDIATE")
+            active = [r[0] for r in db.execute("SELECT DISTINCT conversation_id FROM turns WHERE status='RUNNING'")]
+            for conv in active:
+                db.execute("UPDATE conversations SET status='NEEDS_ATTENTION' WHERE id=?", (conv,))
+                db.execute("UPDATE turns SET status='NEEDS_ATTENTION' WHERE conversation_id=? AND status IN ('QUEUED','RUNNING')", (conv,))
+                db.execute("INSERT INTO events(kind,subject,at) VALUES ('worker_interrupted',?,?)", (conv, now()))
+            sending = [r[0] for r in db.execute("SELECT id FROM outbox WHERE state='SENDING'")]
+            for ident in sending:
+                db.execute("UPDATE outbox SET state='UNKNOWN' WHERE id=?", (ident,))
+                db.execute("INSERT INTO events(kind,subject,at) VALUES ('delivery_uncertain',?,?)", (ident, now()))
+            return {"conversations_quarantined": len(active), "uncertain_deliveries": len(sending)}
