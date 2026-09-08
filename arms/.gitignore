@@ -1,0 +1,5 @@
+*.sqlite3*
+sessions/
+runtime/
+.env*
+!.env.example

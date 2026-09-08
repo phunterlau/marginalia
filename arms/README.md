@@ -1,0 +1,70 @@
+# Arms — local research conversation control plane
+
+Arms is independently packaged beside `brain/`. Brain owns scientific memory;
+Arms owns authorization-bound conversation routing, work queues and delivery
+bookkeeping. Pi will own conversational continuity. Discord will provide the
+visible interaction surface. This package does not replace Pi with another LLM
+conversation engine.
+
+## Development
+
+From the repository root, install both local packages in an external environment:
+
+```sh
+python3 -m venv /absolute/path/to/arms-env
+/absolute/path/to/arms-env/bin/pip install -e ./brain -e './arms[dev]'
+/absolute/path/to/arms-env/bin/python -m pytest arms/tests
+```
+
+Tests use isolated synthetic personal/shared Brain spaces and no provider calls.
+Keep operational databases, source archives, backups, credentials and Pi sessions
+outside the checkout. `ArmsRegistry(..., create=True)` explicitly creates a new
+operational registry; ordinary opening never initializes or migrates a database.
+
+## Current library contract
+
+`research_arms.ArmsRegistry` uses only Brain's public `SpaceRegistry` interface.
+Trusted local administration registers Discord-user/principal/personal-space
+mappings and binds guild channels to shared spaces. These administrative methods
+are **not remote command handlers** and must not be exposed to bot users.
+
+An authenticated transport creates conversations with exact channel/thread IDs.
+It must verify real guild/thread/parent identity and Discord permissions itself;
+the registry cannot authenticate caller-supplied Discord IDs. Shared channels
+cannot bind personal spaces. A DM can attach explicitly selected shared spaces.
+Each conversation has a permanent visibility digest and dedicated Pi session ID.
+Different authorized authors share the same shared conversation, while every
+turn stores its own acting principal and immutable ContextScope.
+
+`enqueue` retains only explicitly forwarded bot-directed turns. Duplicate
+message delivery is idempotent; changed message content requires a separate edit
+workflow. Reply anchors must be completed turns in the same conversation.
+`claim` atomically enforces one active turn per conversation and two globally.
+No process is started by claiming. `save_answer` commits the answer and pending
+delivery record together. Reopening preserves exact identities; RUNNING work is
+never automatically replayed after a crash.
+
+`read` is a worker capability bound to a persisted running turn, not a client-
+selected scope. It exposes bounded source/object/search/recall operations only,
+with no provider calls, arbitrary filesystem paths or Brain mutations. It checks
+current authorization both before and after retrieval. Missing and forbidden
+resources share an unavailable error. Backend asset/session paths are stripped
+from structured results. Policy changes invalidate contaminated scopes;
+`revoke_stale` quarantines their pending work/deliveries and returns the session
+IDs a future supervisor must abort. It does not itself terminate processes.
+
+## Boundaries still to implement
+
+This is an offline control-plane foundation, **not a running Discord bot**.
+Gateway authentication/handlers, default active-DM and paper-thread routing,
+forks, Pi RPC supervision and capability binding, stop/recovery, actual delivery
+and uncertain-send reconciliation, publication consent, scientific reviews,
+discussion search and reactions are not yet connected. Outbox insertion is
+tested, not external delivery. There is no HTTP listener, daemon or LaunchAgent.
+
+Before exposing any transport, add process ownership/recovery and revalidate
+authorization at the actual outbound-send boundary. The worker's turn capability
+must be injected server-side, never accepted from a Discord user or Pi tool
+argument. Session file locations must be separately rooted by space. Live use
+also requires the absorption validation gate, user-provided Discord setup and
+controlled multi-user testing. Synthetic canary tests are not that live gate.
