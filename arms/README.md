@@ -38,6 +38,20 @@ Opening an old registry does not perform migrations automatically.
 
 ## Reliable research recall
 
+`/frontier thread_id:<Brain research-thread obj_ID>` presents current goals,
+uncertainties, pending experiments and linked research records. This is an
+**exploratory** view: every record retains its own origin/review state, including
+unreviewed hypotheses and negative observations. It does not create a snapshot,
+run a model, or use an old snapshot as current truth. Brain research-thread IDs
+are distinct from Arms/Pi conversation IDs.
+
+Linked records use stable-ID pagination, five per page. `omitted_records` reports
+the remaining count; pass `next_cursor` as `after_id` to continue. Fields are not
+silently truncated; responses exceeding 66,000 bytes require the local reader.
+The view is confined to the current destination space and refreshes review labels
+on each request. Concurrent corpus changes may change subsequent pages; this is
+a current view, not a frozen export.
+
 `/brainstorm question` creates and selects a separate scoped Pi conversation.
 Its initial turn has a durable blind-first marker: **all Brain read tools are
 denied by Arms**, not merely discouraged by a prompt. Pi receives the question

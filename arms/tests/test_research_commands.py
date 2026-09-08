@@ -5,6 +5,7 @@ import pytest
 
 from research_arms.research_commands import recall
 from research_arms.research_commands import compare
+from research_arms.research_commands import frontier
 from test_registry import setup
 
 
@@ -93,3 +94,31 @@ def test_compare_pins_coexisting_revisions_and_does_not_mutate(setup):
 def test_compare_requires_explicit_distinct_pins(setup, pins):
     arms, _ = setup
     with pytest.raises(ValueError): asyncio.run(compare(arms, "1", {"space_id": "alice"}, pins, "Geometry"))
+
+
+def test_frontier_paginates_current_labeled_records_without_snapshot_writes(setup):
+    arms, spaces = setup
+    brain = spaces.open("alice")
+    thread = brain.create_thread("Private frontier", goal="PRIVATE_FRONTIER_CANARY", unknown=["Mechanism?"], pending_experiments=["Proposed control"])
+    identities = []
+    for index in range(7):
+        identities.append(brain.create_hypothesis("Hypothesis " + str(index), thread_id=thread.id,
+            origin="AGENT_PROPOSED", review_state="UNREVIEWED").id)
+    brain.create_research_object(kind="frontier_snapshot", body="STALE_SNAPSHOT_CANARY", structured={"thread_id": thread.id})
+    with brain.store.connect() as db: before = list(db.iterdump())
+    async def run():
+        first = await frontier(arms, "1", {"space_id": "alice"}, thread.id)
+        value = first["result"]
+        assert value["omitted_records"] == 2 and value["next_cursor"]
+        assert value["thread"]["structured"]["unknown"] == ["Mechanism?"]
+        assert value["thread"]["structured"]["pending_experiments"] == ["Proposed control"]
+        second = (await frontier(arms, "1", {"space_id": "alice"}, thread.id, after_id=value["next_cursor"]))["result"]
+        combined = value["records"] + second["records"]
+        assert [r["id"] for r in combined] == sorted(identities)
+        assert all(r["review_state"] == "UNREVIEWED" and r["origin"] == "AGENT_PROPOSED" for r in combined)
+        assert "STALE_SNAPSHOT_CANARY" not in json.dumps(first)
+        assert second["next_cursor"] is None
+        with pytest.raises(LookupError): await frontier(arms, "1", {"space_id": "project"}, thread.id)
+        with pytest.raises(PermissionError): await frontier(arms, "2", {"space_id": "alice"}, thread.id)
+    asyncio.run(run())
+    with brain.store.connect() as db: assert list(db.iterdump()) == before

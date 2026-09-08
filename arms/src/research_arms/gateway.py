@@ -28,6 +28,7 @@ from .discussion_worker import DiscussionWorker
 from .discussion_reconcile import DiscussionReconciler
 from .research_commands import recall as research_recall
 from .research_commands import compare as research_compare
+from .research_commands import frontier as research_frontier
 from .saves import save_excerpt
 from .discussion_edits import observe as observe_discussion_edit
 from .forks import fork_conversation
@@ -68,6 +69,9 @@ class ResearchGateway(discord.Client):
         self._commands()
 
     def _commands(self):
+        @self.tree.command(name="frontier", description="Inspect a Brain research thread, including unreviewed ideas and proposed tests")
+        async def frontier(interaction: discord.Interaction, thread_id: str, after_id: str = ""):
+            await self.execute(interaction, "frontier", thread_id=thread_id, after_id=after_id)
         @self.tree.command(name="save", description="Preview or explicitly save an exact answer excerpt as unreviewed memory")
         async def save(interaction: discord.Interaction, answer_message_id: str, revision: int, start: int, end: int,
                        confirm: bool = False, digest: str | None = None):
@@ -291,13 +295,15 @@ class ResearchGateway(discord.Client):
                     str(interaction.id), destination, **options)
             text = json.dumps(result, ensure_ascii=False)
             if len(text) > 1700:
-                if len(text.encode()) > (110000 if command.startswith("publish_") else 66000 if command in {"discussed", "recall", "compare", "save"} else 16000): raise ValueError("Result exceeds bound")
+                if len(text.encode()) > (110000 if command.startswith("publish_") else 66000 if command in {"discussed", "recall", "compare", "save", "frontier"} else 16000): raise ValueError("Result exceeds bound")
                 await interaction.edit_original_response(content="Research result attached; inspect provenance and review labels.",
                     attachments=[discord.File(io.BytesIO(text.encode()), filename="research-result.json")],
                     allowed_mentions=discord.AllowedMentions.none())
                 return
         except ValueError:
-            text = ("Save not confirmed. Preview a current /discussed revision with 0-based start/end character offsets (end exclusive, at most 8,000 characters), then repeat with confirm:true and its exact digest. Shared saves require a maintainer."
+            text = ("Frontier unavailable or oversized. Use an exact Brain research-thread obj_ID and its returned next_cursor as after_id. Oversized records require the local reader."
+                    if command == "frontier" else
+                    "Save not confirmed. Preview a current /discussed revision with 0-based start/end character offsets (end exclusive, at most 8,000 characters), then repeat with confirm:true and its exact digest. Shared saves require a maintainer."
                     if command == "save" else
                     "Approval status not confirmed. Inspect /paper job and use its exact plan digest with confirm:true."
                     if command == "paper_approve" else
@@ -314,6 +320,8 @@ class ResearchGateway(discord.Client):
 
     async def handle(self, command, actor, channel, guild, message_id, destination, **options):
         """Internal authenticated handler; never expose caller-supplied destination data."""
+        if command == "frontier":
+            return await research_frontier(self.registry, actor, destination, options["thread_id"], after_id=options.get("after_id", ""))
         if command == "save":
             return await asyncio.to_thread(save_excerpt, self.registry, actor, channel, guild,
                 options["answer_message_id"], revision=options["revision"], start=options["start"], end=options["end"],

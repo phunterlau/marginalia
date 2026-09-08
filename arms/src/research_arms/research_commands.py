@@ -16,6 +16,18 @@ def transport(value):
     return value
 
 
+async def frontier(registry, actor, destination, thread_id, *, after_id=""):
+    with registry.connect(readonly=True) as db:
+        principal = registry._principal(db, actor)["principal"]
+    space = destination["space_id"]
+    scope = registry.spaces.scope(principal, conversation_id="frontier-read", writable_space=space)
+    result = transport(await asyncio.to_thread(registry.spaces.read, scope, space,
+        "frontier_view", thread_id, after_id=after_id, limit=5))
+    if len(json.dumps(result, ensure_ascii=False).encode()) > 66000:
+        raise ValueError("Frontier exceeds Discord bound; use the local reader")
+    return result
+
+
 async def recall(registry, actor, destination, question):
     if not isinstance(question, str) or not question.strip() or len(question) > 2000 or "\x00" in question:
         raise ValueError("Recall question must contain 1..2000 characters")

@@ -134,6 +134,26 @@ class Brain:
     def get_research_object(self, object_id: str) -> dict[str, Any] | None:
         return self.store.get_object_record(object_id)
 
+    def frontier_view(self, thread_id: str, *, after_id: str = "", limit: int = 5) -> dict[str, Any]:
+        """Fresh read-only frontier; never creates or trusts a historical snapshot."""
+        import re
+        if not isinstance(thread_id, str) or not re.fullmatch(r"obj_[A-Za-z0-9_-]{1,90}", thread_id):
+            raise ValueError("Invalid research thread ID")
+        if not isinstance(after_id, str) or (after_id and not re.fullmatch(r"obj_[A-Za-z0-9_-]{1,90}", after_id)):
+            raise ValueError("Invalid frontier cursor")
+        if type(limit) is not int or not 1 <= limit <= 10: raise ValueError("Frontier limit must be 1..10")
+        thread = self.get_research_object(thread_id)
+        if thread is None or thread["kind"] != "research_thread": raise LookupError("Research thread unavailable")
+        with self.store.connect() as db:
+            rows = db.execute("SELECT id FROM research_objects WHERE json_extract(structured_json,'$.thread_id')=? AND kind!='frontier_snapshot' AND id>? ORDER BY id LIMIT ?",
+                (thread_id, after_id, limit + 1)).fetchall()
+            remaining = db.execute("SELECT COUNT(*) FROM research_objects WHERE json_extract(structured_json,'$.thread_id')=? AND kind!='frontier_snapshot' AND id>?",
+                (thread_id, after_id)).fetchone()[0]
+        records = [self.get_research_object(row[0]) for row in rows[:limit]]
+        return {"thread": thread, "records": records, "omitted_records": max(0, remaining - limit),
+            "next_cursor": rows[limit - 1][0] if len(rows) > limit else None,
+            "notice": "Current exploratory frontier, not reliable recall. Inspect each record's origin and review state. Thread assertions and proposed tests are not automatically verified observations. Historical snapshots are excluded; no snapshot or model output was generated."}
+
     def read_object_field(self, object_id: str, field: str, **options: Any) -> dict[str, Any]:
         from .record_pages import page
         record = self.get_research_object(object_id)
