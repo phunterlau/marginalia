@@ -66,6 +66,24 @@ class PaperSubmissions:
                     "paper_thread": dict(thread) if thread else None,
                     "notice": "Source preparation only. Paid work requires a separate exact-plan approval."}
 
+    def retry(self, ident, actor, channel, guild, space):
+        """Explicitly requeue failed source-only work; never approve its paid plan."""
+        if not isinstance(ident, str) or len(ident) > 100: raise Unavailable()
+        with self.registry.connect() as db:
+            db.execute("BEGIN IMMEDIATE")
+            row = db.execute("SELECT * FROM paper_submissions WHERE id=?", (ident,)).fetchone()
+            if (row is None or row["actor"] != actor or row["channel_id"] != channel
+                    or row["guild_id"] != guild or row["state"] != "NEEDS_ATTENTION"):
+                raise Unavailable()
+            scope = self._scope(row)
+            if scope.writable_space != space: raise Unavailable()
+            queued = db.execute("SELECT COUNT(*) FROM paper_submissions WHERE actor=? AND state IN ('QUEUED','RUNNING')", (actor,)).fetchone()[0]
+            total = db.execute("SELECT COUNT(*) FROM paper_submissions WHERE state IN ('QUEUED','RUNNING')").fetchone()[0]
+            if queued >= 10 or total >= 100: raise ValueError("Source queue is full")
+            db.execute("UPDATE paper_submissions SET state='QUEUED' WHERE id=?", (ident,))
+            db.execute("INSERT INTO events(kind,subject,at) VALUES ('source_retry_requested',?,?)", (ident, now()))
+        return ident
+
     async def work_once(self):
         with self.registry.connect() as db:
             db.execute("BEGIN IMMEDIATE")

@@ -11,6 +11,32 @@ class Access:
     async def authorize(self, *args, **kwargs): return {}
 
 
+def test_explicit_source_retry_preserves_request_and_audits_once(setup):
+    from research_arms import Unavailable
+    arms, _ = setup
+    calls = []
+    class Service:
+        def __init__(self, *args, **kwargs): pass
+        def submit(self, url, *, limits):
+            calls.append((url, limits))
+            if len(calls) == 1: raise OSError("synthetic failure")
+            return {"job_id": "job_recovered"}
+    queue = PaperSubmissions(arms, Access(), service_factory=Service)
+    ident = queue.enqueue("1", "30", None, "alice", "100", "https://arxiv.org/abs/2506.24056v2", limits=SpendingLimits())
+    with pytest.raises(Unavailable): queue.retry(ident, "1", "30", None, "alice")
+    with pytest.raises(OSError): asyncio.run(queue.work_once())
+    for actor, channel, space in [("2", "30", "alice"), ("1", "31", "alice"), ("1", "30", "project")]:
+        with pytest.raises(Unavailable): queue.retry(ident, actor, channel, None, space)
+    assert queue.retry(ident, "1", "30", None, "alice") == ident
+    with pytest.raises(Unavailable): queue.retry(ident, "1", "30", None, "alice")
+    assert asyncio.run(queue.work_once()) == ident
+    assert calls[0] == calls[1]
+    assert queue.show(ident, "1", "30", None, "alice")["state"] == "SOURCE_READY"
+    with arms.connect(readonly=True) as db:
+        assert db.execute("SELECT count(*) FROM events WHERE kind='source_retry_requested'").fetchone()[0] == 1
+        assert db.execute("SELECT count(*) FROM events WHERE kind='source_dispatched'").fetchone()[0] == 2
+
+
 def test_source_request_is_durable_and_idempotent_without_paid_work(setup):
     arms, _ = setup
     calls = []

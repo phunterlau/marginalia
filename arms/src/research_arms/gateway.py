@@ -156,6 +156,10 @@ class ResearchGateway(discord.Client):
         async def paper_submission(interaction: discord.Interaction, submission_id: str):
             await self.execute(interaction, "paper_submission", submission_id=submission_id)
 
+        @paper.command(name="retry", description="Explicitly retry your failed source preparation; no paid approval")
+        async def paper_retry(interaction: discord.Interaction, submission_id: str):
+            await self.execute(interaction, "paper_retry", submission_id=submission_id)
+
         @paper.command(name="thread", description="Create or reuse the pinned shared-paper starter and thread")
         async def paper_thread(interaction: discord.Interaction, job_id: str):
             await self.execute(interaction, "paper_thread", job_id=job_id)
@@ -484,9 +488,11 @@ class ResearchGateway(discord.Client):
                 return await threads.reconcile(actor, guild, parent, destination["space_id"],
                     options["job_id"], options["starter_message_id"])
             return await threads.ensure(actor, guild, parent, destination["space_id"], options["job_id"])
-        if command in {"paper_add", "paper_submission"}:
+        if command in {"paper_add", "paper_submission", "paper_retry"}:
             if self.submissions is None: raise Unavailable()
             ident = options.get("submission_id")
+            if command == "paper_retry":
+                self.submissions.retry(ident, actor, channel, guild, destination["space_id"])
             if command == "paper_add":
                 ident = self.submissions.enqueue(actor, channel, guild, destination["space_id"], message_id,
                     options["url"], limits=SpendingLimits(options["max_calls"], options["max_reserved_tokens"]))

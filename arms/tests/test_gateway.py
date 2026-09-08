@@ -69,7 +69,7 @@ def test_native_command_registration_is_offline_and_minimal(setup):
         assert {cmd.name for cmd in client.tree.get_commands()} == {"new", "resume", "fork", "fork-recover", "delivery-recover", "session", "space", "ask", "stop", "paper", "card", "publish", "discussed", "recall", "compare", "brainstorm", "save", "frontier", "interests", "deep-dive"}
         assert {cmd.name for cmd in client.tree.get_command("publish").commands} == {"prepare", "show", "consent", "approve", "cancel", "run"}
         assert {cmd.name for cmd in client.tree.get_command("card").commands} == {"show", "review"}
-        assert {cmd.name for cmd in client.tree.get_command("paper").commands} == {"status", "brief", "cards", "evidence", "job", "approve", "add", "submission", "thread", "reconcile"}
+        assert {cmd.name for cmd in client.tree.get_command("paper").commands} == {"status", "brief", "cards", "evidence", "job", "approve", "add", "submission", "retry", "thread", "reconcile"}
         assert client.intents.guilds and not client.intents.message_content and not client.intents.members
         assert client.intents.guild_reactions and client.intents.dm_reactions
         assert client.supervisor is None and client.pump is None

@@ -399,6 +399,14 @@ Discord nonce deduplication is time-limited, not a substitute for durable outbox
 state. See the [Discord message API](https://docs.discord.com/developers/resources/message).
 Tests use fake HTTP responses; no live Discord send has been performed.
 
+`/paper retry submission_id:...` explicitly requeues your own failed
+`NEEDS_ATTENTION` source submission in its original destination. Original scope,
+URL and spending limits are retained; stale policies fail closed. It records a
+retry event and the worker records a new dispatch attempt. RUNNING work must
+first undergo stopped-worker recovery. Retrying never approves paid work or
+resends a paper starter. An unversioned URL may resolve a newer revision on retry;
+inspect the resulting pinned source and exact paid-work plan before approval.
+
 `DiscordAccess` resolves current DM recipients, channel/guild identity, configured
 parent project, roles, member overrides, and thread access from fresh REST reads.
 Group DMs, mismatched parents, archived/locked threads, and unavailable permissions
