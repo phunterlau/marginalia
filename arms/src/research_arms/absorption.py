@@ -6,6 +6,22 @@ from research_brain.spaces import ContextScope
 from .registry import Unavailable
 
 
+def budget_summary(plan):
+    """Compact uncached baseline, not a price quote or completion guarantee."""
+    previews = plan.get("previews")
+    records = plan.get("source_embedding_records")
+    if previews is None or records is None:
+        return {"available": False}
+    extraction = [{"task": item["task"], "calls": item["expected_calls"]} for item in previews]
+    source_calls = (records + 63) // 64 if "embeddings" in plan["tasks"] else 0
+    minimum = sum(item["calls"] for item in extraction) + source_calls
+    return {"available": True, "extraction": extraction,
+        "source_embedding_records": records, "source_embedding_calls": source_calls,
+        "uncached_minimum_calls": minimum, "max_calls": plan["limits"]["max_calls"],
+        "below_uncached_baseline": plan["limits"]["max_calls"] < minimum,
+        "notice": "Uncached baseline only. Generated-card embeddings and retries add calls; successful cached work may reduce calls. Token feasibility is not estimated. Limits are not increased automatically."}
+
+
 class ScopedAbsorption:
     def __init__(self, registry, actor, space_id, *, create=False):
         self.registry, self.space_id = registry, space_id
@@ -43,6 +59,7 @@ class ScopedAbsorption:
             "plan_digest": result["plan_digest"], "document_id": plan["document_id"],
             "compilation_id": plan["compilation_id"], "tasks": plan["tasks"],
             "limits": plan["limits"], "model": plan["extract_model"],
+            "budget_summary": budget_summary(plan),
             "reasoning_effort": plan["reasoning_effort"], "source_ready": result["source_ready"],
             "cards_ready_for_review": result["cards_ready_for_review"],
             "calls_reserved": result["calls_reserved"], "tokens_reserved": result["tokens_reserved"],
