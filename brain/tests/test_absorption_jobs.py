@@ -84,6 +84,45 @@ def work(jobs, **kwargs):
                           embedding_factory=FakeEmbeddingProvider)
 
 
+@pytest.mark.parametrize("boundary", ["cancelled", "claim", "revoked", "missing_guard", "audit_failure"])
+def test_cached_response_obeys_current_authority_and_atomic_audit(jobs, boundary):
+    allowed = [True]
+
+    def authorize(context):
+        if not allowed[0]:
+            raise PermissionError("Access revoked")
+
+    guarded = AbsorptionJobs(jobs.brain, "personal", authorization_context={"policy": 7},
+                             authorization_check=authorize)
+    job = guarded.enqueue(jobs.fixture_document, jobs.fixture_compilation)
+    with guarded.connect() as db:
+        db.execute("UPDATE jobs SET status='RUNNING',claimed_by='worker',attempt=1 WHERE id=?", (job["id"],))
+    request = {"input": "private canary"}
+    guarded._call(job["id"], "worker", "methods", request, 100,
+                  lambda: {"output": {"cards": []}, "response_id": "private-response"})
+    with guarded.connect() as db:
+        db.execute("UPDATE jobs SET attempt=2 WHERE id=?", (job["id"],))
+        if boundary == "cancelled":
+            db.execute("UPDATE jobs SET cancel_requested=1 WHERE id=?", (job["id"],))
+        if boundary == "claim":
+            db.execute("UPDATE jobs SET claimed_by='other-worker' WHERE id=?", (job["id"],))
+        if boundary == "audit_failure":
+            db.execute("CREATE TRIGGER reject_reuse BEFORE INSERT ON events WHEN NEW.kind='response_reused' "
+                       "BEGIN SELECT RAISE(ABORT, 'injected audit failure'); END")
+    if boundary == "revoked":
+        allowed[0] = False
+    if boundary == "missing_guard":
+        guarded = AbsorptionJobs(jobs.brain, "personal")
+    import sqlite3
+    expected = sqlite3.IntegrityError if boundary == "audit_failure" else JobStopped
+    with pytest.raises(expected):
+        guarded._call(job["id"], "worker", "methods", request, 100, lambda: pytest.fail("Provider invoked"))
+    with guarded.connect() as db:
+        assert db.execute("SELECT count(*) FROM calls").fetchone()[0] == 1
+        assert db.execute("SELECT count(*) FROM events WHERE kind='response_reused'").fetchone()[0] == 0
+        assert db.execute("SELECT calls_reserved FROM jobs WHERE id=?", (job["id"],)).fetchone()[0] == 1
+
+
 def test_offline_complete_unreviewed_and_scoped(jobs):
     job = enqueue(jobs)
     assert job["status"] == "WAITING_APPROVAL"
