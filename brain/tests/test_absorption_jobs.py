@@ -35,6 +35,50 @@ def approve(jobs, job):
     return jobs.approve(job["id"], job["plan_digest"], live=True)
 
 
+def test_explicit_retry_reuses_returned_response_without_spending(jobs):
+    job = enqueue(jobs)
+    with jobs.connect() as db:
+        db.execute("UPDATE jobs SET status='RUNNING',claimed_by='test',attempt=1 WHERE id=?", (job["id"],))
+    response = {"output": {"cards": []}, "usage": {"total_tokens": 17}, "response_id": "resp_test"}
+    jobs._call(job["id"], "test", "methods", {"input": "same"}, 100, lambda: response)
+    before = jobs.show(job["id"])
+    with jobs.connect() as db:
+        db.execute("UPDATE jobs SET status='FAILED' WHERE id=?", (job["id"],))
+    retry = jobs.retry(job["id"])
+    with pytest.raises(JobStopped):
+        jobs._call(job["id"], "test", "methods", {"input": "same"}, 100, lambda: pytest.fail("paid"))
+    approve(jobs, retry)
+    with jobs.connect() as db:
+        db.execute("UPDATE jobs SET status='RUNNING',claimed_by='test',attempt=2 WHERE id=?", (job["id"],))
+    reused = jobs._call(job["id"], "test", "methods", {"input": "same"}, 100, lambda: pytest.fail("paid"))
+    assert reused["output"] == response["output"]
+    assert reused["usage"] == {} and reused["cached_call_id"]
+    after = jobs.show(job["id"])
+    assert (after["calls_reserved"], after["tokens_reserved"]) == (before["calls_reserved"], before["tokens_reserved"])
+    with jobs.connect() as db:
+        assert json.loads(db.execute("SELECT response_json FROM calls").fetchone()[0])["usage"] == {"total_tokens": 17}
+        assert db.execute("SELECT count(*) FROM events WHERE kind='response_reused'").fetchone()[0] == 1
+
+
+@pytest.mark.parametrize("changed", ["task", "request", "job", "invalid", "same_attempt"])
+def test_response_reuse_is_exact_and_excludes_failed_returns(jobs, changed):
+    job = enqueue(jobs)
+    with jobs.connect() as db:
+        db.execute("UPDATE jobs SET status='RUNNING',claimed_by='test',attempt=1 WHERE id=?", (job["id"],))
+    jobs._call(job["id"], "test", "methods", {"input": "same"}, 100, lambda: {"output": {"cards": []}})
+    if changed == "job":
+        job = enqueue(jobs, limits=SpendingLimits(max_calls=33))
+    with jobs.connect() as db:
+        db.execute("UPDATE jobs SET status='RUNNING',claimed_by='test',attempt=? WHERE id=?", (1 if changed == "same_attempt" else 2, job["id"]))
+        if changed == "invalid":
+            db.execute("UPDATE calls SET status='RETURNED_INVALID'")
+    called = []
+    jobs._call(job["id"], "test", "math" if changed == "task" else "methods",
+               {"input": "different" if changed == "request" else "same"}, 100,
+               lambda: called.append(True) or {"output": {"cards": []}})
+    assert called == [True]
+
+
 def work(jobs, **kwargs):
     return jobs.work_once(extraction_factory=kwargs.get("factory", FakeExtractionProvider),
                           embedding_factory=FakeEmbeddingProvider)
@@ -267,6 +311,18 @@ def test_invalid_chunk_stops_later_spending_and_preserves_ledger(jobs, monkeypat
         assert run[0] == "failed"
         assert len(json.loads(run[1])["chunk_outputs"]) == 2
         assert json.loads(run[2])["input_tokens"] == 20
+
+    # Transport success is not validation success: replay must validate again
+    # and remain atomic, even when no provider call is needed.
+    approve(jobs, jobs.retry(job["id"]))
+    retried = work(jobs, factory=InvalidSecond)
+    assert retried["status"] == "FAILED"
+    assert InvalidSecond.calls == retried["calls_reserved"] == 2
+    with jobs.brain.store.connect() as db:
+        assert db.execute("SELECT COUNT(*) FROM research_objects").fetchone()[0] == 0
+        # The synthetic chunks are identical: the latest returned payload is
+        # invalid, so validation stops on the first cached response.
+        assert db.execute("SELECT COUNT(*) FROM generation_attempts WHERE outcome='cached'").fetchone()[0] == 1
 
 
 def test_real_process_kill_leaves_dispatch_for_explicit_recovery(jobs):

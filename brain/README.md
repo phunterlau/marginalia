@@ -221,6 +221,13 @@ Repeated completed inputs use the ledger cache. `--force` creates a new immutabl
 run. Provider failures and invalid evidence references create failed runs and no
 cards.
 
+For absorption jobs, an explicit retry requires renewed exact-plan approval.
+Earlier returned Method/Math responses within that same job are reused for
+identical requests and validated again. Reuse is audited, adds no paid usage,
+and never resets cumulative spending limits. Incomplete or uncertain provider
+responses are not reused; cancellation and authorization checks still apply.
+Malformed cached content fails validation without committing partial cards.
+
 ## Review and retrieval
 
 ```bash

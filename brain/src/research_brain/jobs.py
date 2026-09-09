@@ -292,6 +292,30 @@ class AbsorptionJobs:
         return call_id
 
     def _call(self, job_id, claimant, task, request, output_cap, invoke):
+        # Reuse only returned extraction responses from an earlier explicit
+        # attempt of this exact immutable job. Extraction validates them again;
+        # a transport return alone is not scientific/schema acceptance.
+        if task in {"methods", "math"}:
+            with self.connect() as db:
+                db.execute("BEGIN IMMEDIATE")
+                job = self._get(db, job_id)
+                if job["status"] != "RUNNING" or job["claimed_by"] != claimant or job["cancel_requested"]:
+                    raise JobStopped("Job cancelled or claim unavailable")
+                self._authorize(json.loads(job["plan_json"]))
+                cached = db.execute(
+                    "SELECT id,response_json FROM calls WHERE job_id=? AND task=? "
+                    "AND request_digest=? AND attempt<? AND status='RETURNED' "
+                    "ORDER BY dispatched_at DESC,id DESC LIMIT 1",
+                    (job_id, task, digest(request), job["attempt"]),
+                ).fetchone()
+                if cached:
+                    response = json.loads(cached["response_json"])
+                    response["usage"] = {}  # Original usage remains on its paid call.
+                    response["cached_call_id"] = cached["id"]
+                    self._event(db, job_id, "response_reused", payload={
+                        "task": task, "call_id": cached["id"], "attempt": job["attempt"],
+                    })
+                    return response
         call_id = self._dispatch(job_id, claimant, task, request, output_cap)
         try:
             response = invoke()

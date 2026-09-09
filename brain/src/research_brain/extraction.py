@@ -276,7 +276,8 @@ class Extractor:
                             if isinstance(value, int):
                                 total_usage[key] = total_usage.get(key, 0) + value
                         self.store.record_attempt(run_id=run_id, number=attempt_number, started_at=started,
-                                                  outcome="success", usage=response.get("usage", {}))
+                                                  outcome="cached" if response.get("cached_call_id") else "success",
+                                                  usage=response.get("usage", {}))
                         break
                     except Exception as exc:
                         returned = getattr(exc, "response_payload", None)
